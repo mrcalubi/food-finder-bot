@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lifestyle Finder</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="container">
+    <h1>🍽️ Lifestyle Finder</h1>
+    <p class="subtitle">Ask me anything — food, bars, cafes, parks, shopping, or fun!</p>
+    
+    <div class="input-box">
+      <input id="input" placeholder="e.g. nearby cafe with cheap but good food"/>
+      <button onclick="getRecommendations()" class="search-button">
+        <span class="button-text">Search</span>
+        <span class="button-icon">🔍</span>
+      </button>
+    </div>
+    
+    <div class="location-box">
+      <span id="location-status" class="location-status">📍 Getting your location...</span>
+    </div>
+    
+    <div class="quick-actions">
+      <button onclick="quickSearch('super-nearby')" class="quick-btn super-nearby">
+        <span class="btn-icon">🚶‍♂️</span>
+        <span class="btn-text">Super Nearby</span>
+        <span class="btn-subtitle">300m</span>
+      </button>
+      <button onclick="quickSearch('surprise-me')" class="quick-btn surprise-me">
+        <span class="btn-icon">😈</span>
+        <span class="btn-text">Surprise Me</span>
+        <span class="btn-subtitle">Random 4.5+</span>
+      </button>
+      <button onclick="quickSearch('imma-walk')" class="quick-btn imma-walk">
+        <span class="btn-icon">🚶‍♀️</span>
+        <span class="btn-text">Imma Walk</span>
+        <span class="btn-subtitle">500m</span>
+      </button>
+      <button id="price-toggle" onclick="togglePriceMode()" class="quick-btn price-toggle">
+        <span class="btn-icon">💰</span>
+        <span class="btn-text">Broke</span>
+        <span class="btn-subtitle">1 money bag</span>
+      </button>
+    </div>
+    
+    <div class="group-voting" id="group-voting" style="display: none;">
+      <div class="voting-header">
+        <h3>🎉 Group Voting</h3>
+        <button onclick="closeGroupVoting()" class="close-btn">×</button>
+      </div>
+      <div class="voting-content">
+        <div class="group-size">
+          <label>How many people in your group?</label>
+          <input type="number" id="group-size" min="2" max="20" value="4">
+        </div>
+        <div class="voting-options" id="voting-options">
+          <!-- Voting options will be populated here -->
+        </div>
+        <div class="voting-actions">
+          <button onclick="startVoting()" class="start-voting-btn">Start Voting</button>
+          <button onclick="revealResults()" class="reveal-btn" style="display: none;">Reveal Results</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="group-vote-trigger">
+      <button onclick="openGroupVoting()" class="group-vote-btn">
+        <span class="btn-icon">🗳️</span>
+        <span class="btn-text">Group Vote</span>
+      </button>
+    </div>
+    
+    <div id="loading-screen" class="loading-screen hidden">
+      <div class="cooking-animation">
+        <div class="chef-hat">👨‍🍳</div>
+        <div class="cooking-text" id="cooking-text">Cooking up a fire suggestion for you...</div>
+        <div class="loading-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    </div>
+    
+    <div id="intent-box"></div>
+    <div id="output"></div>
+  </div>
+
+  <script>
+    let userLocation = null;
+    let currentRecommendations = [];
+    let userCoordinates = null;
+    let priceMode = 'off'; // 'off', 'broke', 'ballin'
+    let groupVotingData = {
+      isActive: false,
+      groupSize: 4,
+      votes: {},
+      options: []
+    };
+    
+    // Comprehensive dietary restrictions database
+    const dietaryDatabase = {
+      'halal': { emoji: '🕌', name: 'Halal' },
+      'vegetarian': { emoji: '🥬', name: 'Vegetarian' },
+      'vegan': { emoji: '🌱', name: 'Vegan' },
+      'gluten-free': { emoji: '🌾', name: 'Gluten-Free' },
+      'keto': { emoji: '🥑', name: 'Keto' },
+      'paleo': { emoji: '🥩', name: 'Paleo' },
+      'dairy-free': { emoji: '🥛', name: 'Dairy-Free' },
+      'nut-free': { emoji: '🥜', name: 'Nut-Free' },
+      'kosher': { emoji: '✡️', name: 'Kosher' },
+      'no-eggs': { emoji: '🥚', name: 'No Eggs' },
+      'low-sodium': { emoji: '🧂', name: 'Low Sodium' },
+      'sugar-free': { emoji: '🍯', name: 'Sugar-Free' },
+      'raw-food': { emoji: '🥕', name: 'Raw Food' },
+      'pescatarian': { emoji: '🐟', name: 'Pescatarian' },
+      'lactose-free': { emoji: '🥛', name: 'Lactose-Free' }
+    };
+
+    // Create price range display with money bags
+    function createPriceBags(priceRange) {
+      const priceLevels = {
+        'budget': 1,
+        'moderate': 2,
+        'expensive': 4,
+        'luxury': 5,
+        'any': 2
+      };
+      
+      const level = priceLevels[priceRange] || 2;
+      let bags = '';
+      
+      for (let i = 1; i <= 5; i++) {
+        const opacity = i <= level ? '1' : '0.3';
+        bags += `<span class="money-bag" style="opacity: ${opacity}">💰</span>`;
+      }
+      
+      return bags;
+    }
+
+    // Create dietary restrictions display
+    function createDietaryDisplay(restrictions) {
+      if (!restrictions || restrictions.length === 0) {
+        return '<span class="no-restrictions">❌ None specified</span>';
+      }
+      
+      return restrictions.map(restriction => {
+        const info = dietaryDatabase[restriction.toLowerCase()];
+        if (info) {
+          return `<span class="dietary-tag">${info.emoji} ${info.name}</span>`;
+        }
+        return `<span class="dietary-tag">🥗 ${restriction}</span>`;
+      }).join(' ');
+    }
+
+    // Pick for me functionality
+    function pickForMe() {
+      if (currentRecommendations.length === 0) {
+        alert('No recommendations available to pick from!');
+        return;
+      }
+      
+      const output = document.getElementById('output');
+      const cards = output.querySelectorAll('.card');
+      
+      // Remove previous selection highlight
+      cards.forEach(card => card.classList.remove('selected'));
+      
+      // Pick random recommendation
+      const randomIndex = Math.floor(Math.random() * currentRecommendations.length);
+      const selectedCard = cards[randomIndex];
+      
+      // Add selection animation
+      selectedCard.classList.add('selected');
+      
+      // Scroll to selected card
+      selectedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      // Show pick animation
+      showPickAnimation(selectedCard);
+    }
+
+    // Show pick animation
+    function showPickAnimation(card) {
+      const animation = document.createElement('div');
+      animation.className = 'pick-animation';
+      animation.innerHTML = '🎯 Picked for you!';
+      
+      card.appendChild(animation);
+      
+      setTimeout(() => {
+        animation.remove();
+      }, 2000);
+    }
+
+    let loadingMessages = [
+      "Cooking up a fire suggestion for you...",
+      "Sifting through the best spots...",
+      "Adding a pinch of local flavor...",
+      "Whisking up perfect recommendations...",
+      "Sautéing the finest options...",
+      "Baking fresh suggestions just for you...",
+      "Grilling the top picks...",
+      "Simmering the perfect match...",
+      "Plating your ideal recommendations...",
+      "Adding the secret sauce to your search..."
+    ];
+
+    // Show loading screen with random message
+    function showLoading() {
+      const loadingScreen = document.getElementById('loading-screen');
+      const cookingText = document.getElementById('cooking-text');
+      
+      // Pick a random loading message
+      const randomMessage = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+      cookingText.textContent = randomMessage;
+      
+      loadingScreen.classList.remove('hidden');
+      loadingScreen.classList.add('fade-in');
+    }
+
+    // Hide loading screen
+    function hideLoading() {
+      const loadingScreen = document.getElementById('loading-screen');
+      loadingScreen.classList.add('hidden');
+      loadingScreen.classList.remove('fade-in');
+    }
+
+    // Update location status display
+    function updateLocationStatus(message, isError = false) {
+      const locationStatus = document.getElementById('location-status');
+      locationStatus.textContent = message;
+      locationStatus.style.color = isError ? '#d32f2f' : '#2e7d32';
+    }
+
+    // Get user's current location
+    async function getCurrentLocation() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Geolocation is not supported by this browser.'));
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const { latitude, longitude } = position.coords;
+            userCoordinates = { latitude, longitude };
+            
+            // Try reverse geocoding first, with fallback
+            try {
+              const response = await fetch(`/api/geocode?lat=${latitude}&lng=${longitude}`);
+              const data = await response.json();
+              
+              if (data.results && data.results.length > 0 && data.status === 'OK') {
+                const result = data.results[0];
+                const components = result.address_components;
+                
+                // Try to get city, state, country for better location
+                let city = components.find(c => c.types.includes('locality'));
+                let state = components.find(c => c.types.includes('administrative_area_level_1'));
+                let country = components.find(c => c.types.includes('country'));
+                
+                if (city && state && country) {
+                  userLocation = `${city.long_name}, ${state.long_name}, ${country.long_name}`;
+                } else if (city && country) {
+                  userLocation = `${city.long_name}, ${country.long_name}`;
+                } else if (state && country) {
+                  userLocation = `${state.long_name}, ${country.long_name}`;
+                } else {
+                  userLocation = result.formatted_address || 'Current Location';
+                }
+                
+                console.log('📍 Detected location via geocoding:', userLocation);
+                updateLocationStatus(`✅ Location: ${userLocation}`);
+              } else {
+                // Fallback: Use coordinates-based location detection
+                userLocation = await detectLocationFromCoordinates(latitude, longitude);
+                console.log('📍 Detected location via coordinates:', userLocation);
+                updateLocationStatus(`✅ Location: ${userLocation}`);
+              }
+              resolve(userLocation);
+            } catch (error) {
+              console.error('Geocoding error, using fallback:', error);
+              // Fallback: Use coordinates-based location detection
+              userLocation = await detectLocationFromCoordinates(latitude, longitude);
+              console.log('📍 Detected location via fallback:', userLocation);
+              updateLocationStatus(`✅ Location: ${userLocation}`);
+              resolve(userLocation);
+            }
+          },
+          (error) => {
+            console.log('Location access denied or failed:', error);
+            userLocation = 'Singapore'; // Default fallback
+            updateLocationStatus('❌ Location access denied - using Singapore as default', true);
+            resolve(userLocation);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 300000 // 5 minutes
+          }
+        );
+      });
+    }
+
+    async function getRecommendations(searchType = null) {
+      const query = document.getElementById("input").value;
+      
+      // Show loading screen
+      showLoading();
+      
+      // Clear previous results
+      document.getElementById("output").innerHTML = "";
+      document.getElementById("intent-box").innerHTML = "";
+
+      // Get user location if not already available
+      if (!userLocation) {
+        try {
+          await getCurrentLocation();
+        } catch (error) {
+          console.log('Could not get location:', error);
+          userLocation = 'Singapore';
+        }
+      }
+
+      try {
+        const requestBody = { 
+          query,
+          userLocation: userLocation,
+          searchType: searchType || null,
+          priceMode: priceMode === 'off' ? null : priceMode
+        };
+
+        const res = await fetch("/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!res.ok) throw new Error("Server returned " + res.status);
+
+        const data = await res.json();
+        console.log("DEBUG raw response:", data);
+
+        // --- Show parsed intent with enhanced display ---
+        if (data.intent) {
+          const priceRange = data.intent.price_range || 'any';
+          const dietaryRestrictions = data.intent.dietary_restrictions || [];
+          const location = data.intent.location || 'Not specified';
+          
+          // Create price range display with money bags
+          const priceBags = createPriceBags(priceRange);
+          
+          // Create dietary restrictions display
+          const dietaryDisplay = createDietaryDisplay(dietaryRestrictions);
+
+          document.getElementById("intent-box").innerHTML = `
+            <div class="intent">
+              <div class="intent-row">
+                <span class="intent-label">📍 Location:</span>
+                <span class="intent-value location-value">${location}</span>
+              </div>
+              <div class="intent-row">
+                <span class="intent-label">💰 Price Range:</span>
+                <span class="intent-value price-bags">${priceBags}</span>
+              </div>
+              <div class="intent-row">
+                <span class="intent-label">🥗 Dietary:</span>
+                <span class="intent-value dietary-display">${dietaryDisplay}</span>
+              </div>
+            </div>
+          `;
+        }
+
+        if (!data.recommendations || data.recommendations.length === 0) {
+          document.getElementById("output").innerHTML = "<p>No results found</p>";
+          return;
+        }
+
+        // Store recommendations for pick for me functionality
+        currentRecommendations = data.recommendations;
+        renderResults(data.recommendations);
+
+      } catch (err) {
+        console.error("Error in getRecommendations:", err);
+        document.getElementById("output").innerHTML = "<p>Error loading results</p>";
+      } finally {
+        // Hide loading screen
+        hideLoading();
+      }
+    }
+
+    function renderResults(results) {
+      if (!Array.isArray(results)) results = [results];
+
+      // Add pick for me button
+      const pickButton = `
+        <div class="pick-for-me-container">
+          <button onclick="pickForMe()" class="pick-for-me-btn">
+            <span class="dice-emoji">🎲</span>
+            <span class="pick-text">Pick for Me!</span>
+          </button>
+        </div>
+      `;
+
+      const resultsHTML = results.map(r => `
+        <div class="card">
+          <div class="card-header">
+          <h3>${r.name || "Unknown"}</h3>
+            <div class="rating-badge">
+              ${r.rating ? `<span class="stars">${'⭐'.repeat(Math.floor(r.rating))}</span> ${r.rating}/5` : ""}
+              ${r.user_ratings_total ? `<span class="review-count">(${r.user_ratings_total} reviews)</span>` : ""}
+            </div>
+          </div>
+          <p>📍 ${r.location || "N/A"}</p>
+          <p>💰 ${r.price || "N/A"}</p>
+          
+          ${r.reason ? `
+            <details class="reason">
+              <summary>💡 Why this place?</summary>
+              <p>${r.reason}</p>
+            </details>
+          ` : ""}
+          
+          ${r.dietary_match ? `
+            <details class="reason">
+              <summary>🥗 Dietary Options</summary>
+              <p>${r.dietary_match}</p>
+            </details>
+          ` : ""}
+          
+          ${r.occasion_fit ? `
+            <details class="reason">
+              <summary>🎉 Perfect For</summary>
+              <p>${r.occasion_fit}</p>
+            </details>
+          ` : ""}
+          
+          ${r.unique_selling_point ? `
+            <details class="reason">
+              <summary>✨ What Makes It Special</summary>
+              <p>${r.unique_selling_point}</p>
+            </details>
+          ` : ""}
+          
+          ${r.low_rating_reason ? `
+            <details class="reason low-rating">
+              <summary>⚠️ Why We Still Recommend This</summary>
+              <p>${r.low_rating_reason}</p>
+            </details>
+          ` : ""}
+          
+          <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((r.name || "") + " " + (r.location || ""))}" 
+             target="_blank" class="maps-link">Open in Google Maps ↗</a>
+        </div>
+      `).join("");
+
+      document.getElementById("output").innerHTML = pickButton + resultsHTML;
+    }
+
+    // Quick search functions
+    async function quickSearch(type) {
+      if (!userLocation) {
+        alert('Location is still being detected. Please wait a moment and try again.');
+        return;
+      }
+
+      let query = '';
+      let radius = '';
+      
+      switch(type) {
+        case 'super-nearby':
+          query = 'restaurant near me';
+          radius = '300m';
+          break;
+        case 'surprise-me':
+          query = 'restaurant near me';
+          radius = '10km';
+          break;
+        case 'imma-walk':
+          query = 'restaurant near me';
+          radius = '500m';
+          break;
+      }
+
+      // Set the input value
+      document.getElementById('input').value = query;
+      
+      // Add radius info to loading message
+      const loadingMessages = [
+        `Finding places within ${radius}...`,
+        `Searching ${radius} radius...`,
+        `Looking for nearby spots...`
+      ];
+      
+      // Show loading with custom message
+      showLoading();
+      const cookingText = document.getElementById('cooking-text');
+      cookingText.textContent = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+
+      // Make the search request with search type
+      await getRecommendations(type);
+    }
+
+    // Price toggle functionality (3 states: off, broke, ballin)
+    function togglePriceMode() {
+      const toggle = document.getElementById('price-toggle');
+      const icon = toggle.querySelector('.btn-icon');
+      const text = toggle.querySelector('.btn-text');
+      const subtitle = toggle.querySelector('.btn-subtitle');
+      
+      // Cycle through states: off -> broke -> ballin -> off
+      if (priceMode === 'off') {
+        priceMode = 'broke';
+        icon.textContent = '💰';
+        text.textContent = 'Broke';
+        subtitle.textContent = '1 money bag';
+        toggle.className = 'quick-btn price-toggle broke';
+      } else if (priceMode === 'broke') {
+        priceMode = 'ballin';
+        icon.textContent = '💎';
+        text.textContent = 'Ballin';
+        subtitle.textContent = '5 money bags';
+        toggle.className = 'quick-btn price-toggle ballin';
+      } else {
+        priceMode = 'off';
+        icon.textContent = '💰';
+        text.textContent = 'Any Price';
+        subtitle.textContent = 'No filter';
+        toggle.className = 'quick-btn price-toggle off';
+      }
+    }
+
+    // Group voting functions
+    function openGroupVoting() {
+      if (currentRecommendations.length === 0) {
+        alert('Please get some recommendations first!');
+        return;
+      }
+      
+      document.getElementById('group-voting').style.display = 'block';
+      groupVotingData.options = currentRecommendations;
+      setupVotingOptions();
+    }
+
+    function closeGroupVoting() {
+      document.getElementById('group-voting').style.display = 'none';
+      groupVotingData.isActive = false;
+      groupVotingData.votes = {};
+    }
+
+    function setupVotingOptions() {
+      const optionsContainer = document.getElementById('voting-options');
+      optionsContainer.innerHTML = '';
+      
+      currentRecommendations.forEach((option, index) => {
+        const optionDiv = document.createElement('div');
+        optionDiv.className = 'voting-option';
+        optionDiv.innerHTML = `
+          <div class="option-info">
+            <h4>${option.name}</h4>
+            <p>${option.location}</p>
+            <div class="option-rating">${'⭐'.repeat(Math.floor(option.rating))} ${option.rating}/5</div>
+          </div>
+          <div class="vote-count" id="votes-${index}">0 votes</div>
+        `;
+        optionsContainer.appendChild(optionDiv);
+      });
+    }
+
+    function startVoting() {
+      const groupSize = parseInt(document.getElementById('group-size').value);
+      if (groupSize < 2) {
+        alert('Group size must be at least 2!');
+        return;
+      }
+      
+      groupVotingData.groupSize = groupSize;
+      groupVotingData.isActive = true;
+      groupVotingData.votes = {};
+      
+      // Show voting interface
+      document.querySelector('.start-voting-btn').style.display = 'none';
+      document.querySelector('.reveal-btn').style.display = 'inline-block';
+      
+      // Add click handlers to options
+      const options = document.querySelectorAll('.voting-option');
+      options.forEach((option, index) => {
+        option.onclick = () => castVote(index);
+        option.style.cursor = 'pointer';
+      });
+      
+      alert(`Voting started! Pass the phone around for ${groupSize} people to vote. Each person can vote once.`);
+    }
+
+    function castVote(optionIndex) {
+      if (!groupVotingData.isActive) return;
+      
+      const voterId = prompt('Enter your name (anonymous):');
+      if (!voterId) return;
+      
+      if (groupVotingData.votes[voterId]) {
+        alert('You already voted!');
+        return;
+      }
+      
+      groupVotingData.votes[voterId] = optionIndex;
+      
+      // Update vote count display
+      const voteCount = Object.values(groupVotingData.votes).filter(v => v === optionIndex).length;
+      document.getElementById(`votes-${optionIndex}`).textContent = `${voteCount} vote${voteCount !== 1 ? 's' : ''}`;
+      
+      // Check if all votes are in
+      if (Object.keys(groupVotingData.votes).length === groupVotingData.groupSize) {
+        alert('All votes are in! Click "Reveal Results" to see the winner!');
+      }
+    }
+
+    function revealResults() {
+      if (!groupVotingData.isActive) return;
+      
+      // Count votes
+      const voteCounts = {};
+      Object.values(groupVotingData.votes).forEach(optionIndex => {
+        voteCounts[optionIndex] = (voteCounts[optionIndex] || 0) + 1;
+      });
+      
+      // Find winner
+      const winnerIndex = Object.keys(voteCounts).reduce((a, b) => 
+        voteCounts[a] > voteCounts[b] ? a : b
+      );
+      
+      const winner = currentRecommendations[winnerIndex];
+      const winnerVotes = voteCounts[winnerIndex];
+      
+      // Show results
+      alert(`🎉 Winner: ${winner.name}!\n\nVotes: ${winnerVotes}/${groupVotingData.groupSize}\n\nLocation: ${winner.location}\nRating: ${winner.rating}/5`);
+      
+      // Highlight winner in main results
+      const cards = document.querySelectorAll('.card');
+      cards.forEach(card => card.classList.remove('group-winner'));
+      if (cards[winnerIndex]) {
+        cards[winnerIndex].classList.add('group-winner');
+        cards[winnerIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      
+      groupVotingData.isActive = false;
+    }
+
+    // Auto-get location on page load
+    window.addEventListener('load', async () => {
+      try {
+        await getCurrentLocation();
+      } catch (error) {
+        console.error('Failed to get location:', error);
+        updateLocationStatus('❌ Location unavailable - using Singapore as default', true);
+      }
+    });
+  </script>
+</body>
+</html>
