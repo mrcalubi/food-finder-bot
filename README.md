@@ -1,50 +1,62 @@
 # 🍽️ Food Finder Bot
 
-An intelligent food recommendation system that goes beyond typical Google searches to provide personalized restaurant recommendations based on dietary restrictions, special occasions, and detailed preferences.
+An AI-powered food recommendation bot that provides personalized restaurant suggestions based on your location, preferences, and dietary requirements. Built with OpenAI's GPT-4 and Google Maps API.
 
 ## ✨ Features
 
-### 🧠 AI-Powered Recommendations
-- **OpenAI GPT-4 Integration**: Advanced natural language processing to understand complex food requests
-- **Context-Aware Analysis**: Considers dietary restrictions, special occasions, and personal preferences
-- **Intelligent Filtering**: Goes beyond basic search to provide curated, high-quality recommendations
+### 🤖 AI-Powered Intelligence
+- **Natural Language Processing**: Understands complex food queries like "cheap cafe with good wifi for work"
+- **Smart Intent Parsing**: Extracts dietary restrictions, price preferences, and special occasions
+- **Context-Aware Recommendations**: Considers location, time, and user preferences
 
-### 🥗 Comprehensive Dietary Support
-- **Dietary Restrictions**: Halal, Vegetarian, Vegan, Gluten-free, Keto, Paleo, Dairy-free, Nut-free, Kosher
-- **Allergy Considerations**: Smart filtering for common food allergies and sensitivities
-- **Special Diets**: Support for various lifestyle and health-based dietary choices
+### 📍 Location-Based Search
+- **Auto-Location Detection**: Automatically detects your current location
+- **Geocoding Integration**: Converts coordinates to readable city names
+- **Distance-Based Filtering**: Find places within specific walking distances
 
-### 🎉 Special Occasions
-- **Romantic Dinners**: Perfect spots for date nights and anniversaries
-- **Business Meetings**: Professional dining environments
-- **Family Gatherings**: Kid-friendly and group-friendly establishments
-- **Celebrations**: Birthday parties, graduations, and special events
-- **Casual Dining**: Quick meals and everyday dining
+### 🎯 Smart Filtering
+- **Quality Assurance**: Never recommends places below 4.4 stars
+- **Rating Penalty System**: Prioritizes higher-rated establishments
+- **Dietary Restrictions**: Comprehensive database of 15+ dietary options
+- **Price Range Control**: Visual money bag system for budget preferences
 
-### 🗺️ Enhanced Google Maps Integration
-- **Advanced Search**: Utilizes Google Places API with comprehensive filtering
-- **Price Range Filtering**: Budget, moderate, expensive, and luxury options
-- **Real-time Data**: Current hours, ratings, and availability
-- **Location Intelligence**: Smart location-based recommendations
+### 🚀 Quick Actions
+- **Super Nearby (300m)**: Find places within walking distance
+- **Surprise Me (10km)**: Random 4.5+ star recommendations
+- **Imma Walk (500m)**: Casual walking distance options
+- **Price Toggle**: Switch between Broke/Ballin modes
 
-### 💡 Smart Features
-- **Detailed Explanations**: Why each recommendation is perfect for your specific needs
-- **Dietary Match Details**: How each restaurant accommodates your dietary requirements
-- **Occasion Suitability**: Why it's perfect for your special occasion
-- **Unique Selling Points**: What makes each place special beyond typical search results
+### 👥 Group Features
+- **Anonymous Voting**: Pass the phone around for group decisions
+- **Real-time Results**: Live vote counting and winner announcement
+- **Flexible Group Size**: Support for 2-20 people
+
+### 🎨 Modern UI/UX
+- **Responsive Design**: Works perfectly on mobile and desktop
+- **Smooth Animations**: Engaging loading screens and transitions
+- **Visual Feedback**: Clear status indicators and progress updates
+- **Cooking Theme**: Fun, food-focused design language
+
+## 🛠️ Tech Stack
+
+- **Backend**: Node.js, Express.js
+- **AI**: OpenAI GPT-4o-mini
+- **Maps**: Google Maps Places API, Geocoding API
+- **Frontend**: Vanilla JavaScript, HTML5, CSS3
+- **Location**: HTML5 Geolocation API
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js (v14 or higher)
 - OpenAI API key
-- Google Maps API key
+- Google Maps API key with Places and Geocoding enabled
 
 ### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/mrcalubi/food-finder-bot.git
    cd food-finder-bot
    ```
 
@@ -58,11 +70,10 @@ An intelligent food recommendation system that goes beyond typical Google search
    cp .env.example .env
    ```
    
-   Edit `.env` and add your API keys:
-   ```
+   Edit `.env` with your API keys:
+   ```env
    OPENAI_API_KEY=your_openai_api_key_here
    GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
-   PORT=3000
    ```
 
 4. **Start the server**
@@ -73,170 +84,77 @@ An intelligent food recommendation system that goes beyond typical Google search
 5. **Open your browser**
    Navigate to `http://localhost:3000`
 
-## 📝 Usage Examples
+## 🔧 API Setup
 
-### Basic Queries
-- "Best Italian restaurant in downtown"
-- "Cheap halal food near me"
-- "Romantic dinner with sea view"
+### OpenAI API
+1. Visit [OpenAI Platform](https://platform.openai.com/)
+2. Create an API key
+3. Add to your `.env` file
 
-### Advanced Queries
-- "Gluten-free vegan restaurant for anniversary dinner"
-- "Kid-friendly halal buffet for family celebration"
-- "Quiet cafe with wifi for business meeting"
-- "Keto-friendly fine dining for special occasion"
+### Google Maps API
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Enable the following APIs:
+   - Places API
+   - Geocoding API
+3. Create an API key
+4. Add to your `.env` file
 
-### Special Occasion Queries
-- "Romantic rooftop restaurant for proposal"
-- "Family-friendly halal restaurant for birthday party"
-- "Quiet coffee shop for first date"
-- "Luxury restaurant for business client dinner"
+## 📱 Usage
 
-## 🏗️ Architecture
+### Basic Search
+Simply type your food query:
+- "cheap pizza near me"
+- "vegetarian restaurant for date night"
+- "cafe with wifi for work"
 
-### Backend (Node.js + Express)
-- **Intent Parsing**: OpenAI GPT-4 analyzes user queries
-- **Google Places Integration**: Advanced restaurant search and filtering
-- **AI-Powered Recommendations**: Context-aware restaurant selection
-- **Comprehensive Error Handling**: Graceful fallbacks and error recovery
+### Quick Actions
+- **Super Nearby**: Find places within 300m
+- **Surprise Me**: Get a random 4.5+ star recommendation
+- **Imma Walk**: Discover places within 500m
+- **Price Toggle**: Switch between budget and luxury modes
 
-### Frontend (Vanilla JavaScript + HTML/CSS)
-- **Responsive Design**: Works on desktop and mobile
-- **Interactive UI**: Expandable details for each recommendation
-- **Real-time Feedback**: Shows detected intent and filters
-- **Google Maps Integration**: Direct links to restaurant locations
+### Group Voting
+1. Get recommendations first
+2. Click "Group Vote"
+3. Set group size
+4. Pass the phone around for anonymous voting
+5. Reveal the winner!
 
-## 🔧 API Endpoints
+## 🎯 Key Features Explained
 
-### `POST /recommend`
-Main recommendation endpoint that processes user queries.
+### Quality Control
+- **4.4+ Star Minimum**: Never see mediocre places
+- **Smart Penalties**: Lower-rated places only suggested with good reasons
+- **Rating Justification**: Clear explanations for lower-rated recommendations
 
-**Request Body:**
-```json
-{
-  "query": "romantic halal restaurant with sea view"
-}
-```
+### Location Intelligence
+- **Auto-Detection**: No manual location input needed
+- **Accurate Geocoding**: Shows your actual city, not generic "current location"
+- **Distance Awareness**: All suggestions are location-relevant
 
-**Response:**
-```json
-{
-  "recommendations": [
-    {
-      "name": "Restaurant Name",
-      "location": "Address",
-      "price": "$$",
-      "rating": "4.5",
-      "reason": "Detailed explanation...",
-      "dietary_match": "How it matches dietary requirements",
-      "occasion_fit": "Why it's perfect for the occasion",
-      "unique_selling_point": "What makes it special"
-    }
-  ],
-  "intent": {
-    "domain": "food",
-    "query": "restaurant",
-    "location": "Singapore",
-    "dietary_restrictions": ["halal"],
-    "special_occasions": ["romantic"],
-    "price_range": "moderate",
-    "ambiance": ["sea view"],
-    "features": [],
-    "cuisine_type": "any"
-  },
-  "metadata": {
-    "total_found": 15,
-    "dietary_restrictions": ["halal"],
-    "special_occasions": ["romantic"],
-    "price_range": "moderate",
-    "search_location": "Singapore"
-  }
-}
-```
-
-### `GET /health`
-Health check endpoint.
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "message": "API running 🚀"
-}
-```
-
-## 🎯 Key Improvements Made
-
-### 1. Enhanced Intent Parsing
-- **Comprehensive Analysis**: Extracts dietary restrictions, special occasions, price ranges, ambiance, and features
-- **Better Context Understanding**: More nuanced understanding of user needs
-- **Fallback Handling**: Graceful degradation when parsing fails
-
-### 2. Advanced Google Maps Integration
-- **Multi-Parameter Search**: Combines cuisine type, dietary restrictions, and location
-- **Price Level Filtering**: Smart price range filtering based on user preferences
-- **Enhanced Data Processing**: Adds dietary indicators and cuisine categorization
-- **Better Error Handling**: Comprehensive error handling for API failures
-
-### 3. AI-Powered Recommendations
-- **Context-Aware Filtering**: Uses full user context for better recommendations
-- **Detailed Explanations**: Provides specific reasons for each recommendation
-- **Dietary Match Analysis**: Explains how each restaurant meets dietary needs
-- **Occasion Suitability**: Details why each place is perfect for the occasion
-
-### 4. Comprehensive Dietary Support
-- **Multiple Dietary Restrictions**: Support for 9+ dietary requirements
-- **Smart Detection**: Automatically detects dietary needs from user queries
-- **Restaurant Matching**: Analyzes restaurant data for dietary compatibility
-- **Clear Communication**: Explains dietary options for each recommendation
-
-### 5. Special Occasions Support
-- **Occasion Detection**: Identifies special occasions from user queries
-- **Context-Aware Recommendations**: Tailors suggestions to specific occasions
-- **Ambiance Matching**: Considers desired atmosphere and setting
-- **Feature Requirements**: Matches specific needs like wifi, parking, etc.
-
-### 6. Enhanced User Experience
-- **Rich Information Display**: Shows detailed information for each recommendation
-- **Expandable Details**: Collapsible sections for different types of information
-- **Visual Filter Tags**: Color-coded tags for different types of filters
-- **Better Error Handling**: Clear error messages and fallback recommendations
-
-## 🔑 Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `OPENAI_API_KEY` | OpenAI API key for GPT-4 access | Yes |
-| `GOOGLE_MAPS_API_KEY` | Google Maps API key for Places API | Yes |
-| `PORT` | Server port (default: 3000) | No |
-
-## 🚨 Error Handling
-
-The system includes comprehensive error handling:
-
-- **API Failures**: Graceful fallback to local restaurant data
-- **Invalid Queries**: Smart defaults and helpful error messages
-- **Network Issues**: Retry logic and timeout handling
-- **Malformed Responses**: Data validation and sanitization
-
-## 🔮 Future Enhancements
-
-- **User Preferences**: Save and learn from user preferences
-- **Reservation Integration**: Direct booking through restaurant APIs
-- **Menu Analysis**: AI-powered menu analysis for dietary compatibility
-- **Reviews Integration**: Aggregate reviews from multiple sources
-- **Location Services**: GPS-based location detection
-- **Multi-language Support**: Support for multiple languages
-- **Social Features**: Share recommendations with friends
-
-## 📄 License
-
-This project is licensed under the MIT License.
+### AI Understanding
+- **Context Parsing**: Understands "cheap" vs "expensive", "cafe" vs "restaurant"
+- **Dietary Intelligence**: Recognizes 15+ dietary restrictions
+- **Occasion Awareness**: Considers romantic dinners, business meetings, etc.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## 📞 Support
+## 📄 License
 
-For support, please open an issue in the repository or contact the development team.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- OpenAI for the powerful GPT-4 API
+- Google Maps for comprehensive location data
+- The open-source community for inspiration and tools
+
+---
+
+**Made with ❤️ for food lovers everywhere!** 🍕🍜🍔
