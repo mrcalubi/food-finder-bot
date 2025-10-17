@@ -420,11 +420,14 @@
             if (location && 
                 !location.includes('null') && 
                 !location.includes('undefined') &&
-                location !== 'Unknown City, Unknown Region, Unknown Country') {
+                location !== 'Unknown City, Unknown Region, Unknown Country' &&
+                location !== 'Current Location') {
               userLocation = location;
               updateLocationStatus(`✅ IP: ${location}`);
               cacheLocation(location);
               return location;
+            } else {
+              console.log(`IP service ${service} returned invalid location: ${location}`);
             }
           } catch (error) {
             console.log(`IP service ${service} failed:`, error.message);
@@ -432,12 +435,12 @@
           }
         }
         
-        // If all IP services failed, return a generic location
-        console.log('All IP services failed, using generic location');
-        return 'Current Location';
+        // If all IP services failed, return null to trigger fallbacks
+        console.log('All IP services failed - returning null to trigger fallbacks');
+        return null;
       } catch (error) {
         console.error('IP location detection failed:', error);
-        return 'Current Location';
+        return null;
       }
     }
 
