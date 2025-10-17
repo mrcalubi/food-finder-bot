@@ -46,7 +46,7 @@ async function rewriteQuery(userInput, userLocation = null) {
       return {
         domain: "food",
         query: "restaurant",
-        location: userLocation || "Singapore",
+        location: userLocation || "current location",
         dietary_restrictions: [],
         special_occasions: [],
         price_range: "moderate",
@@ -118,7 +118,7 @@ async function rewriteQuery(userInput, userLocation = null) {
             "min_reviews": 0
           }
           
-          Defaults: { "domain":"food", "query":"restaurant", "location":"Singapore", "dietary_restrictions":[], "special_occasions":[], "price_range":"moderate", "ambiance":[], "features":[], "cuisine_type":"any" }`
+          Defaults: { "domain":"food", "query":"restaurant", "location":"${userLocation || 'current location'}", "dietary_restrictions":[], "special_occasions":[], "price_range":"moderate", "ambiance":[], "features":[], "cuisine_type":"any" }`
         },
         { role: "user", content: userInput }
       ]
@@ -179,7 +179,7 @@ async function rewriteQuery(userInput, userLocation = null) {
     const fallback = { 
       domain: "food", 
       query: "restaurant", 
-      location: userLocation || "Singapore", 
+      location: userLocation || "current location", 
       dietary_restrictions: [], 
       special_occasions: [], 
       price_range: "moderate", 
@@ -758,7 +758,7 @@ app.post("/recommend", async (req, res) => {
 
   try {
     // Parse user intent with enhanced analysis, using user location if available
-    let intent = await rewriteQuery(query || "restaurant Singapore", userLocation);
+    let intent = await rewriteQuery(query || "restaurant near me", userLocation);
     
     // Override price range based on price mode
     if (priceMode === 'ballin') {
@@ -825,7 +825,7 @@ app.post("/recommend", async (req, res) => {
       intent: { 
         domain: "food", 
         query: "restaurant", 
-        location: "Singapore",
+        location: userLocation || "current location",
         dietary_restrictions: [],
         special_occasions: [],
         price_range: "moderate"
