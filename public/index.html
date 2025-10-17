@@ -499,13 +499,17 @@
 
       // Get user location if not already available
       if (!userLocation) {
+        console.log("📍 No user location detected, trying to get location...");
         try {
           await getCurrentLocation();
+          console.log("✅ Location obtained:", userLocation);
         } catch (error) {
-          console.log('All location methods failed:', error);
+          console.log('❌ All location methods failed:', error);
           await showFallbackRecommendations('no_location');
           return;
         }
+      } else {
+        console.log("📍 Using existing location:", userLocation);
       }
 
       try {
@@ -528,18 +532,26 @@
           priceMode: priceMode === 'off' ? null : priceMode
         };
 
+        console.log("🚀 Sending request to /recommend with body:", requestBody);
+        
         const res = await fetch("/recommend", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
         });
 
-        if (!res.ok) throw new Error("Server returned " + res.status);
+        console.log("📡 Response status:", res.status, res.statusText);
+        
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error("❌ Server error response:", errorText);
+          throw new Error("Server returned " + res.status + ": " + errorText);
+        }
 
         const data = await res.json();
-        console.log("DEBUG raw response:", data);
-        console.log("DEBUG recommendations length:", data.recommendations ? data.recommendations.length : 'undefined');
-        console.log("DEBUG intent:", data.intent);
+        console.log("✅ DEBUG raw response:", data);
+        console.log("✅ DEBUG recommendations length:", data.recommendations ? data.recommendations.length : 'undefined');
+        console.log("✅ DEBUG intent:", data.intent);
 
         // --- Show parsed intent with enhanced display ---
         if (data.intent) {
