@@ -15,7 +15,18 @@ const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Initialize OpenAI with error handling
+let openai = null;
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    console.log("✅ OpenAI initialized successfully");
+  } else {
+    console.error("❌ OPENAI_API_KEY not found in environment variables");
+  }
+} catch (error) {
+  console.error("❌ Failed to initialize OpenAI:", error.message);
+}
 
 // --- Utility: Clean restaurant object ---
 function safeRestaurant(r) {
@@ -30,6 +41,23 @@ function safeRestaurant(r) {
 // --- Step A: Parse User Intent ---
 async function rewriteQuery(userInput, userLocation = null) {
   try {
+    if (!openai) {
+      console.error("OpenAI not initialized - using fallback intent");
+      return {
+        domain: "food",
+        query: "restaurant",
+        location: userLocation || "Singapore",
+        dietary_restrictions: [],
+        special_occasions: [],
+        price_range: "moderate",
+        ambiance: [],
+        features: [],
+        cuisine_type: "any",
+        min_rating: 0,
+        min_reviews: 0
+      };
+    }
+    
     // Prepare location context for the AI
     const locationContext = userLocation ? `User's current location: ${userLocation}` : "No specific location provided";
     
@@ -381,8 +409,18 @@ function generateLowRatingReason(place) {
 // --- Step C: Advanced Filtering and AI-Powered Recommendations ---
 async function filterResults(userIntent, results) {
   if (!results || results.length === 0) return [];
-
+  
   try {
+    if (!openai) {
+      console.error("OpenAI not initialized - using basic filtering");
+      return results.slice(0, 3).map(place => ({
+        ...safeRestaurant(place),
+        reason: `Good option based on your search criteria`,
+        dietary_match: "Standard options available",
+        occasion_fit: "Suitable for your needs",
+        unique_selling_point: "Well-rated establishment"
+      }));
+    }
     // Prepare context for AI analysis
     const context = {
       user_intent: userIntent,
