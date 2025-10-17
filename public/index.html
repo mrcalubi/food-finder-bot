@@ -583,10 +583,20 @@
           `;
         }
 
+        console.log("🔍 Checking recommendations:", {
+          hasRecommendations: !!data.recommendations,
+          isArray: Array.isArray(data.recommendations),
+          length: data.recommendations ? data.recommendations.length : 'undefined',
+          recommendations: data.recommendations
+        });
+        
         if (!data.recommendations || data.recommendations.length === 0) {
+          console.log("❌ No recommendations found, showing 'No results found'");
           document.getElementById("output").innerHTML = "<p>No results found</p>";
           return;
         }
+        
+        console.log("✅ Recommendations found, proceeding to render");
 
         // Store recommendations for pick for me functionality
         console.log("About to render results:", data.recommendations);
