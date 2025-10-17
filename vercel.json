@@ -8,6 +8,26 @@
   ],
   "routes": [
     {
+      "src": "/recommend",
+      "dest": "server.js",
+      "methods": ["POST"]
+    },
+    {
+      "src": "/health",
+      "dest": "server.js",
+      "methods": ["GET"]
+    },
+    {
+      "src": "/test",
+      "dest": "server.js",
+      "methods": ["GET"]
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "server.js",
+      "methods": ["GET", "POST"]
+    },
+    {
       "src": "/(.*)",
       "dest": "server.js"
     }
