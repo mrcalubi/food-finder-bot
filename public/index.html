@@ -541,8 +541,16 @@
         }
 
         // Store recommendations for pick for me functionality
+        console.log("About to render results:", data.recommendations);
         currentRecommendations = data.recommendations;
+        
+        try {
         renderResults(data.recommendations);
+          console.log("Successfully rendered results");
+        } catch (renderError) {
+          console.error("Error in renderResults:", renderError);
+          throw renderError;
+        }
 
       } catch (err) {
         console.error("Error in getRecommendations:", err);
