@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Lifestyle Finder</title>
+  <title>IDK what to do</title>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
   <div class="container">
-    <h1>🍽️ Lifestyle Finder</h1>
+    <h1>hell</h1>
     <p class="subtitle">Ask me anything — food, bars, cafes, parks, shopping, or fun!</p>
     
     <div class="input-box">
@@ -316,13 +316,21 @@
       document.getElementById("output").innerHTML = "";
       document.getElementById("intent-box").innerHTML = "";
 
+      // Check for network connectivity
+      if (!navigator.onLine) {
+        console.log('No internet connection detected');
+        await showFallbackRecommendations('no_internet');
+        return;
+      }
+
       // Get user location if not already available
       if (!userLocation) {
         try {
           await getCurrentLocation();
         } catch (error) {
           console.log('Could not get location:', error);
-          userLocation = 'Singapore';
+          await showFallbackRecommendations('no_location');
+          return;
         }
       }
 
@@ -386,7 +394,18 @@
 
       } catch (err) {
         console.error("Error in getRecommendations:", err);
-        document.getElementById("output").innerHTML = "<p>Error loading results</p>";
+        
+        // Check if it's a network error or API failure
+        if (!navigator.onLine || err.message.includes('fetch') || err.message.includes('Failed to fetch')) {
+          await showFallbackRecommendations('network_error');
+        } else {
+          document.getElementById("output").innerHTML = `
+            <div class="error-message">
+              <h3>Oops! Something went wrong</h3>
+              <p>Please try again or check your internet connection.</p>
+            </div>
+          `;
+        }
       } finally {
         // Hide loading screen
         hideLoading();
@@ -648,6 +667,63 @@
       }
       
       groupVotingData.isActive = false;
+    }
+
+    // Show fallback recommendations with special UI
+    async function showFallbackRecommendations(reason) {
+      hideLoading();
+      
+      try {
+        const response = await fetch('/api/fallback');
+        const data = await response.json();
+        
+        // Show special fallback UI
+        const fallbackHTML = `
+          <div class="fallback-container">
+            <div class="fallback-header">
+              <div class="fallback-emoji">😱</div>
+              <h2 class="fallback-title">It seems your location cannot be detected!</h2>
+              <p class="fallback-subtitle">These are some of Caleb's favorites instead!</p>
+            </div>
+            <div class="fallback-recommendations">
+              ${data.recommendations.map(r => `
+                <div class="card fallback-card">
+                  <div class="card-header">
+                    <h3>${r.name}</h3>
+                    <div class="rating-badge">
+                      <span class="stars">⭐</span>
+                      <span class="rating">${r.rating}</span>
+                    </div>
+                  </div>
+                  <div class="card-body">
+                    <p class="location">📍 ${r.location}</p>
+                    <p class="price">💰 ${r.price}</p>
+                    <p class="reason">${r.reason}</p>
+                    <div class="fallback-badge">Caleb's Pick</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <div class="fallback-footer">
+              <p>💡 Try enabling location services or check your internet connection for better recommendations!</p>
+            </div>
+          </div>
+        `;
+        
+        document.getElementById("output").innerHTML = fallbackHTML;
+        
+        // Clear intent box for fallback
+        document.getElementById("intent-box").innerHTML = "";
+        
+      } catch (error) {
+        console.error('Fallback failed:', error);
+        document.getElementById("output").innerHTML = `
+          <div class="error-message">
+            <h3>😔 Sorry, we're having technical difficulties</h3>
+            <p>Please check your internet connection and try again later.</p>
+          </div>
+        `;
+      }
     }
 
     // Auto-get location on page load

@@ -614,6 +614,28 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "API running 🚀" });
 });
 
+// Special endpoint for fallback recommendations (only when location/network fails)
+app.get("/api/fallback", (req, res) => {
+  const fallbackRecs = fallbackRestaurants.slice(0, 3).map(restaurant => ({
+    ...restaurant,
+    reason: "Caleb's personal favorite - tried and tested!",
+    dietary_match: "Please check with restaurant directly",
+    occasion_fit: "Perfect for various occasions",
+    unique_selling_point: "One of Caleb's go-to spots for great food",
+    is_fallback: true
+  }));
+  
+  res.json({
+    recommendations: fallbackRecs,
+    is_fallback: true,
+    message: "Location detection failed - showing Caleb's favorites instead!",
+    metadata: {
+      total_found: fallbackRecs.length,
+      fallback_reason: "location_network_error"
+    }
+  });
+});
+
 // Geocoding endpoint for reverse geocoding
 app.get("/api/geocode", async (req, res) => {
   const { lat, lng } = req.query;
@@ -675,18 +697,8 @@ app.post("/recommend", async (req, res) => {
     // Ensure we have proper array format
     if (!Array.isArray(finalRecs)) finalRecs = [finalRecs];
     
-    // Add fallbacks if we don't have enough results
-    if (finalRecs.length < 3) {
-      const fallbackCount = 3 - finalRecs.length;
-      const fallbacks = fallbackRestaurants.slice(0, fallbackCount).map(restaurant => ({
-        ...restaurant,
-        reason: "Popular local recommendation",
-        dietary_match: "Please check with restaurant directly",
-        occasion_fit: "Suitable for various occasions",
-        unique_selling_point: "Well-known local establishment"
-      }));
-      finalRecs = finalRecs.concat(fallbacks);
-    }
+    // Only return actual results - no automatic fallbacks
+    // Fallbacks will be handled by frontend in specific error conditions
 
     // Add metadata to response
     const response = {

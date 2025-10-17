@@ -837,3 +837,112 @@ details.reason.low-rating[open] {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.02); }
 }
+
+/* Fallback UI Styles */
+.fallback-container {
+  text-align: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  border-radius: 20px;
+  margin: 1rem 0;
+  color: white;
+  box-shadow: 0 10px 30px rgba(255, 107, 107, 0.3);
+}
+
+.fallback-header {
+  margin-bottom: 2rem;
+}
+
+.fallback-emoji {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  animation: bounce 2s infinite;
+}
+
+.fallback-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.fallback-subtitle {
+  font-size: 1.2rem;
+  opacity: 0.9;
+  margin-bottom: 0;
+}
+
+.fallback-recommendations {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.fallback-card {
+  background: white;
+  color: #333;
+  border: 3px solid #ff6b6b;
+  position: relative;
+  overflow: hidden;
+}
+
+.fallback-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #ff6b6b, #ee5a24, #ff6b6b);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.fallback-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
+}
+
+.fallback-footer {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.fallback-footer p {
+  font-size: 1rem;
+  opacity: 0.9;
+  margin: 0;
+}
+
+.error-message {
+  text-align: center;
+  padding: 2rem;
+  background: #f8f9fa;
+  border-radius: 15px;
+  border: 2px solid #dee2e6;
+  margin: 1rem 0;
+}
+
+.error-message h3 {
+  color: #dc3545;
+  margin-bottom: 1rem;
+}
+
+.error-message p {
+  color: #6c757d;
+  margin: 0;
+}
