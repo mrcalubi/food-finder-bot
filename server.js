@@ -234,6 +234,7 @@ async function searchGoogle(userIntent) {
 
     if (data.status !== "OK") {
       console.error("Google API Error:", data.status, data.error_message);
+      console.error("This usually means: API key invalid, quota exceeded, or API not enabled");
       return [];
     }
 
@@ -286,6 +287,7 @@ async function searchGoogle(userIntent) {
     return results;
   } catch (err) {
     console.error("Google API fetch error:", err);
+    console.error("This could be: network issue, API key problem, or quota exceeded");
     return [];
   }
 }
