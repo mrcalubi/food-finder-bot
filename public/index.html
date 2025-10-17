@@ -236,74 +236,224 @@
       locationStatus.style.color = isError ? '#d32f2f' : '#2e7d32';
     }
 
-    // Get user's current location
+    // Multi-step location detection with multiple fallbacks
     async function getCurrentLocation() {
+      console.log('🔍 Starting multi-step location detection...');
+      
+      // Step 1: Try GPS with high accuracy
+      try {
+        const gpsLocation = await getLocationFromGPS();
+        if (gpsLocation) {
+          console.log('✅ GPS location successful:', gpsLocation);
+          return gpsLocation;
+        }
+      } catch (error) {
+        console.log('❌ GPS failed:', error.message);
+      }
+      
+      // Step 2: Try GPS with lower accuracy (faster)
+      try {
+        const quickGpsLocation = await getLocationFromGPS(false);
+        if (quickGpsLocation) {
+          console.log('✅ Quick GPS location successful:', quickGpsLocation);
+          return quickGpsLocation;
+        }
+      } catch (error) {
+        console.log('❌ Quick GPS failed:', error.message);
+      }
+      
+      // Step 3: Try cached location (if available)
+      try {
+        const cachedLocation = await getCachedLocation();
+        if (cachedLocation) {
+          console.log('✅ Cached location successful:', cachedLocation);
+          return cachedLocation;
+        }
+      } catch (error) {
+        console.log('❌ Cached location failed:', error.message);
+      }
+      
+      // Step 4: Try IP-based location detection
+      try {
+        const ipLocation = await getLocationFromIP();
+        if (ipLocation) {
+          console.log('✅ IP-based location successful:', ipLocation);
+          return ipLocation;
+        }
+      } catch (error) {
+        console.log('❌ IP-based location failed:', error.message);
+      }
+      
+      // Step 5: Ultimate fallback - show fallback UI
+      console.log('❌ All location methods failed - showing fallbacks');
+      throw new Error('All location detection methods failed');
+    }
+
+    // Step 1: GPS-based location detection
+    async function getLocationFromGPS(highAccuracy = true) {
       return new Promise((resolve, reject) => {
         if (!navigator.geolocation) {
-          reject(new Error('Geolocation is not supported by this browser.'));
+          reject(new Error('Geolocation not supported'));
           return;
         }
+
+        const options = {
+          enableHighAccuracy: highAccuracy,
+          timeout: highAccuracy ? 15000 : 5000, // Longer timeout for high accuracy
+          maximumAge: highAccuracy ? 300000 : 60000 // 5min vs 1min cache
+        };
 
         navigator.geolocation.getCurrentPosition(
           async (position) => {
             const { latitude, longitude } = position.coords;
             userCoordinates = { latitude, longitude };
             
-            // Try reverse geocoding first, with fallback
             try {
+              // Try Google Geocoding API first
               const response = await fetch(`/api/geocode?lat=${latitude}&lng=${longitude}`);
               const data = await response.json();
               
               if (data.results && data.results.length > 0 && data.status === 'OK') {
                 const result = data.results[0];
-                const components = result.address_components;
+                const locationName = extractLocationName(result);
                 
-                // Try to get city, state, country for better location
-                let city = components.find(c => c.types.includes('locality'));
-                let state = components.find(c => c.types.includes('administrative_area_level_1'));
-                let country = components.find(c => c.types.includes('country'));
+                // Cache successful location
+                cacheLocation(locationName, latitude, longitude);
                 
-                if (city && state && country) {
-                  userLocation = `${city.long_name}, ${state.long_name}, ${country.long_name}`;
-                } else if (city && country) {
-                  userLocation = `${city.long_name}, ${country.long_name}`;
-                } else if (state && country) {
-                  userLocation = `${state.long_name}, ${country.long_name}`;
-                } else {
-                  userLocation = result.formatted_address || 'Current Location';
-                }
-                
-                console.log('📍 Detected location via geocoding:', userLocation);
-                updateLocationStatus(`✅ Location: ${userLocation}`);
+                userLocation = locationName;
+                updateLocationStatus(`✅ GPS: ${locationName}`);
+                resolve(locationName);
               } else {
-                // Fallback: Use coordinates-based location detection
-                userLocation = await detectLocationFromCoordinates(latitude, longitude);
-                console.log('📍 Detected location via coordinates:', userLocation);
-                updateLocationStatus(`✅ Location: ${userLocation}`);
+                // Use coordinates as fallback
+                const coordLocation = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                userLocation = coordLocation;
+                updateLocationStatus(`✅ GPS: ${coordLocation}`);
+                resolve(coordLocation);
               }
-              resolve(userLocation);
             } catch (error) {
-              console.error('Geocoding error, using fallback:', error);
-              // Fallback: Use coordinates-based location detection
-              userLocation = await detectLocationFromCoordinates(latitude, longitude);
-              console.log('📍 Detected location via fallback:', userLocation);
-              updateLocationStatus(`✅ Location: ${userLocation}`);
-              resolve(userLocation);
+              console.error('Geocoding failed, using coordinates:', error);
+              const coordLocation = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+              userLocation = coordLocation;
+              updateLocationStatus(`✅ GPS: ${coordLocation}`);
+              resolve(coordLocation);
             }
           },
           (error) => {
-            console.log('Location access denied or failed:', error);
-            userLocation = 'Singapore'; // Default fallback
-            updateLocationStatus('❌ Location access denied - using Singapore as default', true);
-            resolve(userLocation);
+            let errorMessage = 'GPS location failed';
+            switch(error.code) {
+              case error.PERMISSION_DENIED:
+                errorMessage = 'Location permission denied';
+                break;
+              case error.POSITION_UNAVAILABLE:
+                errorMessage = 'Location unavailable';
+                break;
+              case error.TIMEOUT:
+                errorMessage = 'GPS timeout';
+                break;
+            }
+            reject(new Error(errorMessage));
           },
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 300000 // 5 minutes
-          }
+          options
         );
       });
+    }
+
+    // Step 2: Cached location detection
+    async function getCachedLocation() {
+      try {
+        const cached = localStorage.getItem('foodFinder_location');
+        const cachedTime = localStorage.getItem('foodFinder_location_time');
+        
+        if (cached && cachedTime) {
+          const age = Date.now() - parseInt(cachedTime);
+          const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+          
+          if (age < maxAge) {
+            userLocation = cached;
+            updateLocationStatus(`✅ Cached: ${cached}`);
+            return cached;
+          }
+        }
+        return null;
+      } catch (error) {
+        console.error('Cache access failed:', error);
+        return null;
+      }
+    }
+
+    // Step 3: IP-based location detection
+    async function getLocationFromIP() {
+      try {
+        // Try multiple IP geolocation services for redundancy
+        const services = [
+          'https://ipapi.co/json/',
+          'https://ipinfo.io/json',
+          'https://api.ipgeolocation.io/ipgeo?apiKey=free'
+        ];
+        
+        for (const service of services) {
+          try {
+            const response = await fetch(service, { timeout: 5000 });
+            const data = await response.json();
+            
+            let location = null;
+            if (service.includes('ipapi.co')) {
+              location = `${data.city}, ${data.region}, ${data.country_name}`;
+            } else if (service.includes('ipinfo.io')) {
+              location = `${data.city}, ${data.region}, ${data.country}`;
+            } else if (service.includes('ipgeolocation.io')) {
+              location = `${data.city}, ${data.state_prov}, ${data.country_name}`;
+            }
+            
+            if (location && location !== 'null, null, null') {
+              userLocation = location;
+              updateLocationStatus(`✅ IP: ${location}`);
+              cacheLocation(location);
+              return location;
+            }
+          } catch (error) {
+            console.log(`IP service ${service} failed:`, error.message);
+            continue;
+          }
+        }
+        
+        return null;
+      } catch (error) {
+        console.error('IP location detection failed:', error);
+        return null;
+      }
+    }
+
+    // Helper functions
+    function extractLocationName(result) {
+      const components = result.address_components;
+      
+      let city = components.find(c => c.types.includes('locality')) || 
+                components.find(c => c.types.includes('administrative_area_level_2'));
+      let state = components.find(c => c.types.includes('administrative_area_level_1'));
+      let country = components.find(c => c.types.includes('country'));
+      
+      if (city && state && country) {
+        return `${city.long_name}, ${state.long_name}, ${country.long_name}`;
+      } else if (city && country) {
+        return `${city.long_name}, ${country.long_name}`;
+      } else if (state && country) {
+        return `${state.long_name}, ${country.long_name}`;
+      } else {
+        return result.formatted_address || 'Current Location';
+      }
+    }
+
+    function cacheLocation(locationName, latitude = null, longitude = null) {
+      try {
+        localStorage.setItem('foodFinder_location', locationName);
+        localStorage.setItem('foodFinder_location_time', Date.now().toString());
+        if (latitude && longitude) {
+          localStorage.setItem('foodFinder_coordinates', JSON.stringify({ latitude, longitude }));
+        }
+      } catch (error) {
+        console.error('Failed to cache location:', error);
+      }
     }
 
     async function getRecommendations(searchType = null) {
@@ -328,7 +478,7 @@
         try {
           await getCurrentLocation();
         } catch (error) {
-          console.log('Could not get location:', error);
+          console.log('All location methods failed:', error);
           await showFallbackRecommendations('no_location');
           return;
         }
@@ -730,9 +880,10 @@
     window.addEventListener('load', async () => {
       try {
         await getCurrentLocation();
+        console.log('✅ Location detection completed successfully');
       } catch (error) {
-        console.error('Failed to get location:', error);
-        updateLocationStatus('❌ Location unavailable - using Singapore as default', true);
+        console.error('❌ All location methods failed:', error);
+        updateLocationStatus('❌ Location detection failed - will show fallbacks when needed', true);
       }
     });
   </script>
