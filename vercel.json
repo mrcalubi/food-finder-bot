@@ -3,11 +3,10 @@
   "builds": [
     {
       "src": "server.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["public/**"]
+      }
     }
   ],
   "routes": [
@@ -17,6 +16,10 @@
     },
     {
       "src": "/health",
+      "dest": "server.js"
+    },
+    {
+      "src": "/recommend",
       "dest": "server.js"
     },
     {
