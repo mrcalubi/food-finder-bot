@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>IDK what to do</title>
+  <title>idk what to do</title>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
   <div class="container">
     <h1>In a bit of a pickle?</h1>
-    <p class="subtitle">Ask me anything — food, bars, cafes, parks, shopping, or fun!</p>
+    <p class="subtitle">Ask me anything about food!</p>
     
     <div class="input-box">
       <input id="input" placeholder="e.g. nearby cafe with cheap but good food"/>
@@ -24,7 +24,7 @@
     </div>
     
     <div class="quick-actions">
-      <button onclick="quickSearch('super-nearby')" class="quick-btn super-nearby">
+      <button id="super-nearby-toggle" onclick="toggleFilter('super-nearby')" class="quick-btn super-nearby off">
         <span class="btn-icon">🚶‍♂️</span>
         <span class="btn-text">Super Nearby</span>
         <span class="btn-subtitle">300m</span>
@@ -34,7 +34,7 @@
         <span class="btn-text">Surprise Me</span>
         <span class="btn-subtitle">Random 4.5+</span>
       </button>
-      <button onclick="quickSearch('imma-walk')" class="quick-btn imma-walk">
+      <button id="imma-walk-toggle" onclick="toggleFilter('imma-walk')" class="quick-btn imma-walk off">
         <span class="btn-icon">🚶‍♀️</span>
         <span class="btn-text">Imma Walk</span>
         <span class="btn-subtitle">500m</span>
@@ -94,6 +94,10 @@
     let currentRecommendations = [];
     let userCoordinates = null;
     let priceMode = 'off'; // 'off', 'broke', 'ballin'
+    let activeFilters = {
+      'super-nearby': false,
+      'imma-walk': false
+    };
     let groupVotingData = {
       isActive: false,
       groupSize: 4,
@@ -505,10 +509,22 @@
       }
 
       try {
+        // Determine search type based on active filters
+        let finalSearchType = searchType;
+        if (!finalSearchType) {
+          if (activeFilters['super-nearby'] && activeFilters['imma-walk']) {
+            finalSearchType = 'imma-walk'; // Prefer closer option
+          } else if (activeFilters['super-nearby']) {
+            finalSearchType = 'super-nearby';
+          } else if (activeFilters['imma-walk']) {
+            finalSearchType = 'imma-walk';
+          }
+        }
+
         const requestBody = { 
           query,
           userLocation: userLocation,
-          searchType: searchType || null,
+          searchType: finalSearchType,
           priceMode: priceMode === 'off' ? null : priceMode
         };
 
@@ -668,45 +684,42 @@
       document.getElementById("output").innerHTML = pickButton + resultsHTML;
     }
 
-    // Quick search functions
+    // Toggle filter function (no animation, just toggle state)
+    function toggleFilter(type) {
+      const button = document.getElementById(`${type}-toggle`);
+      const isActive = activeFilters[type];
+      
+      // Toggle the state
+      activeFilters[type] = !isActive;
+      
+      // Update button appearance
+      if (activeFilters[type]) {
+        button.classList.remove('off');
+        button.classList.add('active');
+      } else {
+        button.classList.remove('active');
+        button.classList.add('off');
+      }
+      
+      console.log(`Filter ${type} toggled:`, activeFilters[type]);
+    }
+
+    // Quick search functions (only for surprise-me)
     async function quickSearch(type) {
+      if (type !== 'surprise-me') return; // Only surprise-me should trigger search
+      
       if (!userLocation) {
         alert('Location is still being detected. Please wait a moment and try again.');
         return;
       }
 
-      let query = '';
-      let radius = '';
-      
-      switch(type) {
-        case 'super-nearby':
-          query = 'restaurant near me';
-          radius = '300m';
-          break;
-        case 'surprise-me':
-          query = 'restaurant near me';
-          radius = '10km';
-          break;
-        case 'imma-walk':
-          query = 'restaurant near me';
-          radius = '500m';
-          break;
-      }
-
       // Set the input value
-      document.getElementById('input').value = query;
-      
-      // Add radius info to loading message
-      const loadingMessages = [
-        `Finding places within ${radius}...`,
-        `Searching ${radius} radius...`,
-        `Looking for nearby spots...`
-      ];
+      document.getElementById('input').value = 'restaurant near me';
       
       // Show loading with custom message
       showLoading();
       const cookingText = document.getElementById('cooking-text');
-      cookingText.textContent = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+      cookingText.textContent = 'Finding a random surprise for you...';
 
       // Make the search request with search type
       await getRecommendations(type);

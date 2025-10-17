@@ -699,6 +699,11 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Simple test endpoint
+app.get("/test", (req, res) => {
+  res.json({ message: "Test endpoint working!", timestamp: new Date().toISOString() });
+});
+
 // Special endpoint for fallback recommendations (only when location/network fails)
 app.get("/api/fallback", (req, res) => {
   const fallbackRecs = fallbackRestaurants.slice(0, 3).map(restaurant => ({
@@ -742,6 +747,9 @@ app.get("/api/geocode", async (req, res) => {
 });
 
 app.post("/recommend", async (req, res) => {
+  console.log("🚀 /recommend endpoint hit");
+  console.log("📦 Request body:", req.body);
+  
   const { query, userLocation, searchType, priceMode } = req.body;
   console.log("💬 User query:", query);
   console.log("📍 User location:", userLocation);
