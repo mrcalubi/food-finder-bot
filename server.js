@@ -550,7 +550,9 @@ async function filterResults(userIntent, results) {
     // Validate each recommendation has required fields
     parsed = parsed.filter(rec => rec && rec.name && rec.location);
     
-    // Pad with fallbacks if needed
+    console.log(`🤖 AI returned ${parsed.length} recommendations`);
+    
+    // Pad with fallbacks if needed to ensure we always have 3 results
     while (parsed.length < 3 && results.length > parsed.length) {
       const fallbackIndex = parsed.length;
       if (results[fallbackIndex]) {
@@ -561,15 +563,27 @@ async function filterResults(userIntent, results) {
           occasion_fit: "Suitable for your needs",
           unique_selling_point: "Well-rated establishment"
         });
+        console.log(`➕ Added fallback recommendation ${parsed.length}: ${results[fallbackIndex].name}`);
       }
     }
+    
+    // If we still don't have 3, duplicate the best ones
+    while (parsed.length < 3 && parsed.length > 0) {
+      const duplicateIndex = parsed.length % parsed.length;
+      const duplicate = { ...parsed[duplicateIndex] };
+      duplicate.name = duplicate.name + " (Alternative)";
+      duplicate.reason = duplicate.reason + " - Another great option in the area";
+      parsed.push(duplicate);
+      console.log(`🔄 Duplicated recommendation to reach 3 total`);
+    }
 
+    console.log(`✅ Final recommendations count: ${parsed.length}`);
     return parsed.slice(0, 3);
   } catch (err) {
     console.error("AI Filter error:", err);
     
     // Fallback to basic filtering with enhanced reasons
-    const fallbackResults = results.slice(0, 3).map(place => ({
+    let fallbackResults = results.slice(0, 3).map(place => ({
       ...safeRestaurant(place),
       reason: generateFallbackReason(place, userIntent),
       dietary_match: "Please check with restaurant directly",
@@ -577,7 +591,31 @@ async function filterResults(userIntent, results) {
       unique_selling_point: "Well-rated establishment"
     }));
     
-    return fallbackResults;
+    // Ensure we have exactly 3 results
+    while (fallbackResults.length < 3 && results.length > fallbackResults.length) {
+      const fallbackIndex = fallbackResults.length;
+      if (results[fallbackIndex]) {
+        fallbackResults.push({
+          ...safeRestaurant(results[fallbackIndex]),
+          reason: generateFallbackReason(results[fallbackIndex], userIntent),
+          dietary_match: "Please check with restaurant directly",
+          occasion_fit: "Suitable for various occasions",
+          unique_selling_point: "Well-rated establishment"
+        });
+      }
+    }
+    
+    // If we still don't have 3, duplicate the best ones
+    while (fallbackResults.length < 3 && fallbackResults.length > 0) {
+      const duplicateIndex = fallbackResults.length % fallbackResults.length;
+      const duplicate = { ...fallbackResults[duplicateIndex] };
+      duplicate.name = duplicate.name + " (Alternative)";
+      duplicate.reason = duplicate.reason + " - Another great option in the area";
+      fallbackResults.push(duplicate);
+    }
+    
+    console.log(`🔄 Fallback recommendations count: ${fallbackResults.length}`);
+    return fallbackResults.slice(0, 3);
   }
 }
 
