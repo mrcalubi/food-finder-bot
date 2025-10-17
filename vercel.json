@@ -2,34 +2,42 @@
   "version": 2,
   "builds": [
     {
-      "src": "server.js",
+      "src": "api/*.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "public/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
       "src": "/recommend",
-      "dest": "server.js",
+      "dest": "/api/recommend.js",
       "methods": ["POST"]
     },
     {
       "src": "/health",
-      "dest": "server.js",
+      "dest": "/api/health.js",
       "methods": ["GET"]
     },
     {
-      "src": "/test",
-      "dest": "server.js",
+      "src": "/api/geocode",
+      "dest": "/api/geocode.js",
       "methods": ["GET"]
     },
     {
-      "src": "/api/(.*)",
-      "dest": "server.js",
-      "methods": ["GET", "POST"]
+      "src": "/api/fallback",
+      "dest": "/api/fallback.js",
+      "methods": ["GET"]
+    },
+    {
+      "src": "/style.css",
+      "dest": "/public/style.css"
     },
     {
       "src": "/(.*)",
-      "dest": "server.js"
+      "dest": "/public/$1"
     }
   ]
 }
