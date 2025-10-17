@@ -841,7 +841,26 @@ app.post("/recommend", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+
+// Add error handling for server startup
+app.listen(PORT, (err) => {
+  if (err) {
+    console.error("❌ Server failed to start:", err);
+    process.exit(1);
+  }
   console.log(`✅ Server running on http://localhost:${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔑 OpenAI key present: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`);
+  console.log(`🗺️ Google Maps key present: ${process.env.GOOGLE_MAPS_API_KEY ? 'Yes' : 'No'}`);
 });
-// Force Vercel deployment - Fri Oct 17 11:40:31 +07 2025
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
