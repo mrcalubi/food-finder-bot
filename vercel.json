@@ -3,10 +3,11 @@
   "builds": [
     {
       "src": "server.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["public/**"]
-      }
+      "use": "@vercel/node"
+    },
+    {
+      "src": "public/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
@@ -21,6 +22,10 @@
     {
       "src": "/recommend",
       "dest": "server.js"
+    },
+    {
+      "src": "/style.css",
+      "dest": "/public/style.css"
     },
     {
       "src": "/",
