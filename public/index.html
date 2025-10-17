@@ -502,6 +502,8 @@
 
         const data = await res.json();
         console.log("DEBUG raw response:", data);
+        console.log("DEBUG recommendations length:", data.recommendations ? data.recommendations.length : 'undefined');
+        console.log("DEBUG intent:", data.intent);
 
         // --- Show parsed intent with enhanced display ---
         if (data.intent) {
@@ -544,6 +546,13 @@
 
       } catch (err) {
         console.error("Error in getRecommendations:", err);
+        console.error("Error details:", {
+          message: err.message,
+          stack: err.stack,
+          name: err.name,
+          userLocation: userLocation,
+          query: query
+        });
         
         // Check if it's a network error or API failure
         if (!navigator.onLine || err.message.includes('fetch') || err.message.includes('Failed to fetch')) {
@@ -553,6 +562,7 @@
             <div class="error-message">
               <h3>Oops! Something went wrong</h3>
               <p>Please try again or check your internet connection.</p>
+              <p style="font-size: 0.8rem; color: #666;">Error: ${err.message}</p>
             </div>
           `;
         }
