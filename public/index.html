@@ -397,15 +397,30 @@
             const data = await response.json();
             
             let location = null;
+            console.log(`IP service ${service} returned:`, data);
+            
             if (service.includes('ipapi.co')) {
-              location = `${data.city}, ${data.region}, ${data.country_name}`;
+              const city = data.city || 'Unknown City';
+              const region = data.region || 'Unknown Region';
+              const country = data.country_name || data.country || 'Unknown Country';
+              location = `${city}, ${region}, ${country}`;
             } else if (service.includes('ipinfo.io')) {
-              location = `${data.city}, ${data.region}, ${data.country}`;
+              const city = data.city || 'Unknown City';
+              const region = data.region || 'Unknown Region';
+              const country = data.country || 'Unknown Country';
+              location = `${city}, ${region}, ${country}`;
             } else if (service.includes('ipgeolocation.io')) {
-              location = `${data.city}, ${data.state_prov}, ${data.country_name}`;
+              const city = data.city || 'Unknown City';
+              const state = data.state_prov || 'Unknown State';
+              const country = data.country_name || 'Unknown Country';
+              location = `${city}, ${state}, ${country}`;
             }
             
-            if (location && location !== 'null, null, null') {
+            // Check if we got a valid location (not all "Unknown" or null values)
+            if (location && 
+                !location.includes('null') && 
+                !location.includes('undefined') &&
+                location !== 'Unknown City, Unknown Region, Unknown Country') {
               userLocation = location;
               updateLocationStatus(`✅ IP: ${location}`);
               cacheLocation(location);
@@ -417,10 +432,12 @@
           }
         }
         
-        return null;
+        // If all IP services failed, return a generic location
+        console.log('All IP services failed, using generic location');
+        return 'Current Location';
       } catch (error) {
         console.error('IP location detection failed:', error);
-        return null;
+        return 'Current Location';
       }
     }
 
