@@ -1,62 +1,62 @@
 export const fallbackRestaurants = [
   { 
-    name: "Din Tai Fung", 
-    location: "Orchard Road", 
+    name: "Wingstop", 
+    location: "Orchard Road, Singapore", 
+    price: "$$",
+    rating: "4.3",
+    reason: "Premium chicken wings with amazing flavors and crispy texture",
+    dietary_match: "Gluten-free options available, customizable spice levels",
+    occasion_fit: "Perfect for casual dining, sports watching, and group hangouts",
+    unique_selling_point: "11 signature flavors from Lemon Pepper to Atomic, consistently crispy wings"
+  },
+  { 
+    name: "Wingstop", 
+    location: "Marina Bay, Singapore", 
     price: "$$",
     rating: "4.2",
-    reason: "Famous for authentic Taiwanese xiaolongbao and dumplings",
-    dietary_match: "Vegetarian options available, halal-certified branch in some locations",
-    occasion_fit: "Great for family meals and casual dining",
-    unique_selling_point: "Michelin-starred chain with consistent quality"
+    reason: "Great location with waterfront views and delicious wings",
+    dietary_match: "Vegetarian sides available, halal-certified",
+    occasion_fit: "Ideal for casual meals with friends and family",
+    unique_selling_point: "Same great wings with stunning Marina Bay backdrop"
   },
   { 
-    name: "Liao Fan Hawker Chan", 
-    location: "Chinatown", 
-    price: "$",
-    rating: "4.0",
-    reason: "Affordable Michelin-starred soya sauce chicken rice",
-    dietary_match: "Halal options available, simple ingredients",
-    occasion_fit: "Perfect for quick meals and budget dining",
-    unique_selling_point: "First hawker stall to receive Michelin star"
-  },
-  { 
-    name: "PS Cafe", 
-    location: "Dempsey Hill", 
-    price: "$$$",
-    rating: "4.1",
-    reason: "Chic cafe with excellent brunch and coffee in lush surroundings",
-    dietary_match: "Vegetarian and vegan options available",
-    occasion_fit: "Ideal for romantic dates and special occasions",
-    unique_selling_point: "Beautiful garden setting with Instagram-worthy dishes"
-  },
-  { 
-    name: "Ah Chew Desserts", 
-    location: "Bugis", 
-    price: "$",
-    rating: "4.3",
-    reason: "Traditional Chinese desserts and sweet soups",
-    dietary_match: "Many vegetarian options, some vegan-friendly",
-    occasion_fit: "Perfect for casual dessert dates and family gatherings",
-    unique_selling_point: "Authentic traditional desserts in modern setting"
-  },
-  { 
-    name: "The Coconut Club", 
-    location: "Ann Siang Hill", 
+    name: "Wingstop", 
+    location: "Jurong East, Singapore", 
     price: "$$",
     rating: "4.4",
-    reason: "Modern take on traditional Nasi Lemak",
-    dietary_match: "Halal-certified, vegetarian options available",
-    occasion_fit: "Great for casual dining and food exploration",
-    unique_selling_point: "Elevated traditional Singaporean cuisine"
+    reason: "Convenient location with consistently excellent service",
+    dietary_match: "Gluten-free and vegetarian options available",
+    occasion_fit: "Great for quick meals and casual dining",
+    unique_selling_point: "Reliable quality and fast service in the west"
   },
   { 
-    name: "Haidilao Hotpot", 
-    location: "Somerset", 
-    price: "$$$",
-    rating: "4.5",
-    reason: "Premium hotpot experience with excellent service",
-    dietary_match: "Vegetarian broth options, customizable ingredients",
-    occasion_fit: "Perfect for group dining and celebrations",
-    unique_selling_point: "Exceptional service with entertainment while waiting"
+    name: "Fish & Co.", 
+    location: "VivoCity, Singapore", 
+    price: "$$",
+    rating: "4.1",
+    reason: "Fresh seafood with Mediterranean flavors and generous portions",
+    dietary_match: "Vegetarian pasta options, customizable spice levels",
+    occasion_fit: "Perfect for family meals and casual dining",
+    unique_selling_point: "Signature fish and chips with unique Mediterranean twist"
+  },
+  { 
+    name: "Fish & Co.", 
+    location: "ION Orchard, Singapore", 
+    price: "$$",
+    rating: "4.2",
+    reason: "Central location with excellent seafood and Mediterranean cuisine",
+    dietary_match: "Halal-certified, vegetarian options available",
+    occasion_fit: "Great for shopping breaks and casual meals",
+    unique_selling_point: "Fresh seafood in the heart of Orchard shopping district"
+  },
+  { 
+    name: "Fish & Co.", 
+    location: "Suntec City, Singapore", 
+    price: "$$",
+    rating: "4.0",
+    reason: "Reliable seafood restaurant with consistent quality",
+    dietary_match: "Gluten-free options, customizable dishes",
+    occasion_fit: "Perfect for business lunches and family dinners",
+    unique_selling_point: "Convenient location with excellent seafood selection"
   }
 ];
