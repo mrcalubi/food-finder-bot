@@ -753,3 +753,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
 });
+// Force Vercel deployment - Fri Oct 17 11:40:31 +07 2025
