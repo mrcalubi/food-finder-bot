@@ -1,26 +1,41 @@
-import express from "express";
-import dotenv from "dotenv";
-import fetch from "node-fetch";
-import OpenAI from "openai";
-import path from "path";
-import { fileURLToPath } from "url";
-import { fallbackRestaurants } from "./restaurants.js";
+import express from 'express';
+import fetch from 'node-fetch';
+import OpenAI from 'openai';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = dirname(__filename);
 
 const app = express();
 app.use(express.json());
-app.use(express.static("public"));
 
-// Initialize OpenAI with error handling
+// Serve static files from public directory
+app.use(express.static(join(__dirname, 'public')));
+
+// Configuration validation
+const validateConfig = () => {
+  const requiredEnvVars = ['OPENAI_API_KEY', 'GOOGLE_MAPS_API_KEY'];
+  const missing = requiredEnvVars.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    console.error('❌ Missing required environment variables:', missing);
+    return false;
+  }
+  return true;
+};
+
+// Initialize OpenAI with proper error handling
 let openai = null;
 try {
   if (process.env.OPENAI_API_KEY) {
-    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    console.log("✅ OpenAI initialized successfully");
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+  console.log("✅ OpenAI initialized successfully");
   } else {
     console.error("❌ OPENAI_API_KEY not found in environment variables");
   }
@@ -28,211 +43,285 @@ try {
   console.error("❌ Failed to initialize OpenAI:", error.message);
 }
 
-// --- Utility: Clean restaurant object ---
+// Enhanced logging system
+const logger = {
+  info: (message, data = {}) => console.log(`ℹ️  ${message}`, data),
+  error: (message, error = {}) => console.error(`❌ ${message}`, error),
+  warn: (message, data = {}) => console.warn(`⚠️  ${message}`, data),
+  success: (message, data = {}) => console.log(`✅ ${message}`, data)
+};
+
+// Enhanced fallback restaurants with more variety
+const fallbackRestaurants = [
+  {
+    name: "Wingstop",
+    location: "Orchard Road, Singapore",
+    price: "$$",
+    rating: "4.3",
+    reason: "Premium chicken wings with amazing flavors and crispy texture",
+    dietary_match: "Gluten-free options available, customizable spice levels",
+    occasion_fit: "Perfect for casual dining, sports watching, and group hangouts",
+    unique_selling_point: "11 signature flavors from Lemon Pepper to Atomic, consistently crispy wings"
+  },
+  {
+    name: "Fish & Co.",
+    location: "VivoCity, Singapore",
+    price: "$$",
+    rating: "4.1",
+    reason: "Fresh seafood with Mediterranean flavors and generous portions",
+    dietary_match: "Vegetarian pasta options, customizable spice levels",
+    occasion_fit: "Perfect for family meals and casual dining",
+    unique_selling_point: "Signature fish and chips with unique Mediterranean twist"
+  },
+  {
+    name: "Din Tai Fung",
+    location: "ION Orchard, Singapore",
+    price: "$$$",
+    rating: "4.5",
+    reason: "World-famous xiao long bao and authentic Taiwanese cuisine",
+    dietary_match: "Vegetarian options available, customizable spice levels",
+    occasion_fit: "Perfect for family meals and special occasions",
+    unique_selling_point: "Michelin-starred dumplings with consistent quality worldwide"
+  }
+];
+
+// Enhanced safe restaurant object with better error handling
 function safeRestaurant(r) {
   return {
-    name: r.name || "Unknown",
-    location: r.vicinity || r.formatted_address || "N/A",
-    price: r.price_level ? "$".repeat(r.price_level) : "N/A",
-    rating: r.rating ? r.rating.toFixed(1) : null
+    name: r.name || "Unknown Restaurant",
+    location: r.vicinity || r.formatted_address || "Address not available",
+    price: r.price_level ? "$".repeat(Math.min(r.price_level, 4)) : "N/A",
+    rating: r.rating ? parseFloat(r.rating).toFixed(1) : null,
+    user_ratings_total: r.user_ratings_total || 0,
+    place_id: r.place_id || null,
+    types: r.types || []
   };
 }
 
-// --- Step A: Parse User Intent ---
-async function rewriteQuery(userInput, userLocation = null) {
+// Enhanced query parser with context awareness
+async function parseUserIntent(userInput, userLocation = null, context = {}, searchType = null) {
   try {
     if (!openai) {
-      console.error("OpenAI not initialized - using fallback intent");
-      return {
-        domain: "food",
-        query: "restaurant",
-        location: userLocation || "current location",
-        dietary_restrictions: [],
-        special_occasions: [],
-        price_range: "moderate",
-        ambiance: [],
-        features: [],
-        cuisine_type: "any",
-        min_rating: 0,
-        min_reviews: 0
-      };
+      logger.warn("OpenAI not initialized - using fallback intent parsing");
+      return createFallbackIntent(userInput, userLocation);
     }
     
-    // Prepare location context for the AI
     const locationContext = userLocation ? `User's current location: ${userLocation}` : "No specific location provided";
+    const contextPrompt = `
+      Previous searches: ${context.searchHistory || 'None'}
+      User preferences: ${context.preferences || 'None'}
+      Current mood/occasion: ${context.mood || 'Not specified'}
+      Dietary restrictions: ${context.dietary || 'None'}
+      Budget range: ${context.budget || 'Flexible'}
+    `;
     
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are an expert food recommendation assistant with deep understanding of natural language. Extract user intent for food recommendations with comprehensive filtering.
+          content: `You are an expert food recommendation AI with deep understanding of human food preferences and natural language.
 
-          CRITICAL: Pay close attention to the user's exact words and intent:
-          - "cheap", "affordable", "budget", "inexpensive" = budget price range
-          - "cafe", "coffee shop", "coffee" = cafe domain (NOT restaurant), query should be "cafe"
-          - "nearby", "near me", "close by" = use the user's current location provided below
-          - "expensive", "luxury", "high-end" = expensive/luxury price range
-          - "moderate", "mid-range", "reasonable" = moderate price range
-          - "highly rated", "best rated", "top rated", "excellent" = requires 4.8+ stars
-          - "popular", "famous", "well-known", "trending" = requires 500+ reviews
-          - "hidden gem", "local favorite", "underrated" = lower review count but high quality
+          CRITICAL: Handle these human variations with intelligence and provide recommendations when possible:
+          - Vague queries: "I'm hungry", "something good", "surprise me", "I don't know what I want" → Provide general food recommendations
+          - Emotional states: "I'm sad and need comfort food", "celebrating something", "stressed and need something quick" → Match mood to food type
+          - Cultural context: "authentic [cuisine]", "local favorite", "hidden gem", "like my grandma used to make" → Focus on authenticity
+          - Time-based: "quick lunch", "late night food", "brunch spot", "something for now" → Consider timing
+          - Group dynamics: "family-friendly", "date night", "business meeting", "group of friends" → Match occasion
+          - Dietary needs: "something healthy", "comfort food", "light meal", "heavy meal" → Match dietary preferences
+          - Price sensitivity: "cheap but good", "splurge", "budget-friendly", "worth the money" → Match price range
+          - Distance indicators: "nearby", "close", "walking distance", "around here" → Use 1km radius
+          - Broader searches: "in the area", "around [location]", "within [X] km" → Use 5-10km radius
           
-          For query field: If user says "cafe with cheap food", query should be "cafe" not "food"
+          IMPORTANT: Only set needs_clarification to true if the query is completely incomprehensible or contradictory. 
+          For queries like "cafe with food", "restaurant near me", "good food" - provide recommendations with confidence.
 
           ${locationContext}
+          ${contextPrompt}
 
-          Analyze the user's request and extract:
-          - Domain: cafe, food, bar, dessert, fast_food, fine_dining, casual_dining
-          - Query: specific food type or cuisine (if user says "cafe", query should be "cafe" not "restaurant")
-          - Location: use the user's current location if they say "nearby" or "near me", otherwise use their specified location
-          - Dietary restrictions: halal, vegetarian, vegan, gluten-free, keto, paleo, dairy-free, nut-free, kosher
-          - Special occasions: romantic, business, family, celebration, casual, date_night, birthday, anniversary
-          - Price range: budget, moderate, expensive, luxury
-          - Ambiance: quiet, lively, outdoor, rooftop, cozy, modern, traditional
-          - Features: wifi, parking, delivery, takeout, reservations_required, kid_friendly, pet_friendly
-          - Cuisine type: italian, chinese, japanese, indian, mexican, thai, korean, french, american, etc.
-
-          Examples:
-          - "nearby cafe with cheap but good food" → domain: "cafe", price_range: "budget", location: use current location, min_rating: 0, min_reviews: 0
-          - "expensive romantic restaurant" → domain: "food", price_range: "expensive", special_occasions: ["romantic"], min_rating: 0, min_reviews: 0
-          - "halal food near me" → domain: "food", dietary_restrictions: ["halal"], location: use current location, min_rating: 0, min_reviews: 0
-          - "highly rated italian restaurant" → domain: "food", cuisine_type: "italian", min_rating: 4.8, min_reviews: 0
-          - "popular cafe" → domain: "cafe", min_rating: 0, min_reviews: 500
-          - "famous restaurant with excellent food" → domain: "food", min_rating: 4.8, min_reviews: 500
-
-          CRITICAL: You MUST return ONLY valid JSON. Do NOT use markdown code blocks. Do NOT add explanations. Do NOT add any text before or after the JSON. Just return the raw JSON object.
-
-          Output JSON:
+          Return ONLY valid JSON in this exact format:
           {
-            "domain": "cafe|food|bar|dessert|fast_food|fine_dining|casual_dining",
-            "query": "specific food type or cuisine",
-            "location": "city or area",
-            "dietary_restrictions": ["halal","vegetarian","vegan","gluten-free","keto","paleo","dairy-free","nut-free","kosher"],
-            "special_occasions": ["romantic","business","family","celebration","casual","date_night","birthday","anniversary"],
+            "search_term": "the specific food/cuisine they want",
+            "location": "${userLocation || 'current location'}",
+            "radius": 1,
+            "dietary_restrictions": [],
+            "special_occasions": [],
             "price_range": "budget|moderate|expensive|luxury",
-            "ambiance": ["quiet","lively","outdoor","rooftop","cozy","modern","traditional"],
-            "features": ["wifi","parking","delivery","takeout","reservations_required","kid_friendly","pet_friendly"],
-            "cuisine_type": "italian|chinese|japanese|indian|mexican|thai|korean|french|american|etc",
-            "min_rating": 0,
-            "min_reviews": 0
+            "time_requirement": null,
+            "special_features": [],
+            "mood": "casual|romantic|celebration|comfort|adventure",
+            "confidence": 0.85,
+            "needs_clarification": false,
+            "suggested_alternatives": []
           }
           
-          Defaults: { "domain":"food", "query":"restaurant", "location":"${userLocation || 'current location'}", "dietary_restrictions":[], "special_occasions":[], "price_range":"moderate", "ambiance":[], "features":[], "cuisine_type":"any" }`
+          RADIUS GUIDELINES:
+          - "nearby", "close", "walking distance", "around here" → radius: 1
+          - "in the area", "around [location]", "within 2km" → radius: 2
+          - "within 5km", "in [district/area]" → radius: 5
+          - "in [city]", "anywhere in [city]" → radius: 10
+          - Default for general queries → radius: 5`
         },
-        { role: "user", content: userInput }
-      ]
+        {
+          role: "user",
+          content: `User query: "${userInput}"`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 500
     });
 
-    // Extract JSON from potential markdown code blocks
     let content = completion.choices[0].message.content.trim();
     
-    // More robust markdown removal
+    // Extract JSON from potential markdown code blocks
     content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
     
-    // Try to find JSON object/array in the content
-    const jsonMatch = content.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    // Try to find JSON object in the content
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       content = jsonMatch[0];
     }
     
-    console.log("🔍 Extracted content:", content.substring(0, 100) + "...");
+    logger.info("AI Response:", content);
     
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch (parseError) {
-      console.error("JSON Parse Error:", parseError.message);
-      console.error("Content that failed to parse:", content);
-      throw new Error(`Failed to parse AI response: ${parseError.message}`);
-    }
+    const parsed = JSON.parse(content);
     
     // Validate required fields
-    if (!parsed.domain || !parsed.query || !parsed.location) {
-      console.error("Missing required fields in AI response:", parsed);
-      throw new Error('Invalid response structure from AI');
+    const requiredFields = ['search_term', 'location', 'radius'];
+    const missingFields = requiredFields.filter(field => !parsed[field]);
+    
+    if (missingFields.length > 0) {
+      logger.warn("Missing required fields in AI response:", parsed);
+      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
     }
     
-    // Override location if user provided current location and they asked for "nearby"
-    if (userLocation && (userInput.toLowerCase().includes('nearby') || userInput.toLowerCase().includes('near me'))) {
-      parsed.location = userLocation;
-      console.log(`📍 Using user's actual location: ${userLocation}`);
+    // Override radius if distance keywords are detected (only if no search type is specified)
+    if (!searchType) {
+      const detectedRadius = detectDistanceIntent(userInput);
+      if (detectedRadius !== parsed.radius) {
+        logger.info(`Distance keyword detected, adjusting radius from ${parsed.radius} to ${detectedRadius}`);
+        parsed.radius = detectedRadius;
+      }
     }
     
-    // Also fix if AI parsed "nearby" as location
-    if (parsed.location === 'nearby' && userLocation) {
-      parsed.location = userLocation;
-      console.log(`📍 Fixed 'nearby' to actual location: ${userLocation}`);
-    }
-    
-    // Also fix if AI parsed "current location" as location
-    if (parsed.location === 'current location' && userLocation) {
-      parsed.location = userLocation;
-      console.log(`📍 Fixed 'current location' to actual location: ${userLocation}`);
-    }
-    
+    logger.success("Parsed intent successfully:", parsed);
     return parsed;
-  } catch (err) {
-    console.error("Rewrite error:", err);
     
-    // Try to extract basic info from user input as fallback
+  } catch (err) {
+    logger.error("Query parsing error:", err);
+    return createFallbackIntent(userInput, userLocation);
+  }
+}
+    
+// Enhanced fallback intent creation
+function createFallbackIntent(userInput, userLocation) {
+  const input = userInput.toLowerCase();
+  
     const fallback = { 
-      domain: "food", 
-      query: "restaurant", 
+      search_term: "restaurant", 
       location: userLocation || "current location", 
+      radius: 20,
       dietary_restrictions: [], 
       special_occasions: [], 
       price_range: "moderate", 
-      ambiance: [], 
-      features: [], 
-      cuisine_type: "any",
-      min_rating: 0,
-      min_reviews: 0
-    };
-    
-    // Basic keyword detection as fallback
-    const input = userInput.toLowerCase();
-    if (input.includes('cafe') || input.includes('coffee')) {
-      fallback.domain = 'cafe';
-      fallback.query = 'cafe';
+      time_requirement: null,
+    special_features: [],
+    mood: "casual",
+    confidence: 0.3,
+    needs_clarification: false,
+    suggested_alternatives: []
+  };
+  
+  // Enhanced keyword detection
+  const cuisineKeywords = {
+    'korean': ['korean', 'korea', 'kimchi', 'bulgogi', 'bbq'],
+    'japanese': ['japanese', 'japan', 'sushi', 'ramen', 'tempura'],
+    'chinese': ['chinese', 'china', 'dim sum', 'noodles', 'wok'],
+    'italian': ['italian', 'italy', 'pasta', 'pizza', 'risotto'],
+    'indian': ['indian', 'india', 'curry', 'tandoor', 'naan'],
+    'thai': ['thai', 'thailand', 'pad thai', 'tom yum', 'green curry'],
+    'mexican': ['mexican', 'mexico', 'taco', 'burrito', 'quesadilla'],
+    'vietnamese': ['vietnamese', 'vietnam', 'pho', 'banh mi', 'spring roll']
+  };
+  
+  // Detect cuisine type
+  for (const [cuisine, keywords] of Object.entries(cuisineKeywords)) {
+    if (keywords.some(keyword => input.includes(keyword))) {
+      fallback.search_term = cuisine + ' food';
+      break;
     }
-    if (input.includes('cheap') || input.includes('budget')) {
+  }
+  
+  // Detect price sensitivity
+  if (input.includes('cheap') || input.includes('budget') || input.includes('affordable')) {
       fallback.price_range = 'budget';
-    }
-    if (input.includes('expensive') || input.includes('luxury')) {
+  } else if (input.includes('expensive') || input.includes('luxury') || input.includes('fine dining')) {
       fallback.price_range = 'expensive';
     }
-    if (input.includes('highly rated') || input.includes('best rated')) {
-      fallback.min_rating = 4.8;
-    }
-    if (input.includes('popular') || input.includes('famous')) {
-      fallback.min_reviews = 500;
+  
+  // Detect mood/occasion
+  if (input.includes('date') || input.includes('romantic')) {
+    fallback.mood = 'romantic';
+    fallback.special_occasions = ['date_night'];
+  } else if (input.includes('family') || input.includes('kids')) {
+    fallback.mood = 'family';
+    fallback.special_occasions = ['family'];
+  } else if (input.includes('celebration') || input.includes('birthday') || input.includes('anniversary')) {
+    fallback.mood = 'celebration';
+    fallback.special_occasions = ['celebration'];
+  } else if (input.includes('comfort') || input.includes('sad') || input.includes('stressed')) {
+    fallback.mood = 'comfort';
+  }
+  
+  // Detect dietary restrictions
+  if (input.includes('vegetarian') || input.includes('veggie')) {
+    fallback.dietary_restrictions = ['vegetarian'];
+  } else if (input.includes('vegan')) {
+    fallback.dietary_restrictions = ['vegan'];
+  } else if (input.includes('halal')) {
+    fallback.dietary_restrictions = ['halal'];
+  } else if (input.includes('gluten') || input.includes('celiac')) {
+    fallback.dietary_restrictions = ['gluten-free'];
+  }
+  
+  // Detect time requirements
+  if (input.includes('quick') || input.includes('fast') || input.includes('lunch')) {
+    fallback.time_requirement = 'quick';
+  } else if (input.includes('late') || input.includes('night')) {
+      fallback.time_requirement = 'late';
     }
     
     return fallback;
-  }
 }
 
-// --- Step B: Enhanced Google Maps Search ---
-async function searchGoogle(userIntent) {
+// Enhanced Google Maps search with better error handling
+async function searchGoogle(userIntent, userCoordinates = null) {
   try {
-    const { query, location, dietary_restrictions, cuisine_type, price_range, min_rating, min_reviews } = userIntent;
+    const { 
+      search_term, 
+      location, 
+      radius = 5,
+      dietary_restrictions = [],
+      price_range = 'moderate'
+    } = userIntent;
     
-    // Build comprehensive search query
-    let searchQuery = query;
-    if (cuisine_type && cuisine_type !== "any") {
-      searchQuery += ` ${cuisine_type}`;
+    if (!process.env.GOOGLE_MAPS_API_KEY) {
+      logger.error("Google Maps API key not configured");
+      return [];
     }
     
-    // Add dietary restrictions to search
-    if (dietary_restrictions && dietary_restrictions.length > 0) {
-      searchQuery += ` ${dietary_restrictions.join(" ")}`;
+    // Build enhanced search query
+    let searchQuery = search_term;
+    
+    // Add dietary restrictions to search query
+    if (dietary_restrictions.length > 0) {
+      searchQuery += ` ${dietary_restrictions.join(' ')}`;
     }
     
-    const q = encodeURIComponent(`${searchQuery} near ${location}`);
+    const q = `${searchQuery} near ${location}`;
     
-    // Use multiple Google Places API endpoints for better results
     const baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
+    
     const params = new URLSearchParams({
       query: q,
       key: process.env.GOOGLE_MAPS_API_KEY,
@@ -240,8 +329,8 @@ async function searchGoogle(userIntent) {
       opennow: 'true'
     });
     
-    // Add price level filter if specified
-    if (price_range) {
+    // Add price level filtering
+    if (price_range && price_range !== 'any') {
       const priceLevels = {
         'budget': '1',
         'moderate': '2,3', 
@@ -249,247 +338,639 @@ async function searchGoogle(userIntent) {
         'luxury': '4'
       };
       if (priceLevels[price_range]) {
-        params.append('maxprice', priceLevels[price_range].split(',')[1] || priceLevels[price_range]);
-        params.append('minprice', priceLevels[price_range].split(',')[0]);
+        const levels = priceLevels[price_range].split(',');
+        if (levels.length === 2) {
+          params.append('minprice', levels[0]);
+          params.append('maxprice', levels[1]);
+        } else {
+          params.append('maxprice', levels[0]);
+        }
       }
     }
     
     const url = `${baseUrl}?${params}`;
-    console.log("🌍 Google API:", url);
+    logger.info("Google API Request:", url);
 
     const res = await fetch(url);
+    
+    if (!res.ok) {
+      throw new Error(`Google API request failed: ${res.status} ${res.statusText}`);
+    }
+    
     const data = await res.json();
 
+    logger.info("Google API Response:", {
+      status: data.status,
+      results_count: data.results ? data.results.length : 0,
+      error_message: data.error_message
+    });
+
     if (data.status !== "OK") {
-      console.error("Google API Error:", data.status, data.error_message);
-      console.error("This usually means: API key invalid, quota exceeded, or API not enabled");
+      logger.error("Google API Error:", data.status, data.error_message);
       return [];
     }
 
     if (!data.results || data.results.length === 0) {
-      console.log("No results from Google Places API");
+      logger.warn("No results from Google Places API");
       return [];
     }
 
-    // Filter and enhance results
-    let results = data.results
+    // Enhanced filtering and ranking
+    let filteredResults = data.results
       .filter(p => p.business_status !== "CLOSED_PERMANENTLY")
       .filter(p => {
-        // Apply minimum 4.4 star filter (NEVER recommend below 4.4)
-        if (!p.rating || p.rating < 4.4) return false;
-        
-        // Apply custom rating filter if specified
-        if (min_rating && min_rating > 0) {
-          if (p.rating < min_rating) return false;
-        }
-        
-        // Apply review count filter
-        if (min_reviews && min_reviews > 0) {
-          if (!p.user_ratings_total || p.user_ratings_total < min_reviews) return false;
-        }
-        
+        // More flexible rating filter
+        if (!p.rating || p.rating < 3.5) return false;
         return true;
-      })
-      .map(place => ({
-        ...place,
-        // Add dietary restriction indicators
-        has_dietary_options: checkDietaryOptions(place, dietary_restrictions),
-        // Add price level mapping
-        price_category: getPriceCategory(place.price_level),
-        // Add cuisine type if available
-        cuisine_indicators: extractCuisineIndicators(place),
-        // Add rating penalty for selection bias
-        rating_penalty: calculateRatingPenalty(place.rating),
-        // Add low rating reasoning
-        low_rating_reason: generateLowRatingReason(place)
-      }))
-      .sort((a, b) => {
-        // Sort by rating with penalty consideration
-        const scoreA = (a.rating || 0) - (a.rating_penalty || 0);
-        const scoreB = (b.rating || 0) - (b.rating_penalty || 0);
-        return scoreB - scoreA; // Higher score first
-      })
-      .slice(0, 20); // Get more results for better filtering
+      });
 
-    console.log(`🔍 Filtered to ${results.length} results (rating: 4.4+ required, reviews: ${min_reviews || 'any'})`);
+    // Process places with distance calculation
+    let results = filteredResults.map(place => {
+      // Calculate distance if user coordinates are available
+      let distance = null;
+      let distanceFormatted = null;
+      
+      if (userCoordinates) {
+        let placeLocation = null;
+        
+        if (place.geometry && place.geometry.location) {
+          placeLocation = place.geometry.location;
+        }
+        
+        if (placeLocation) {
+          distance = calculateDistance(
+            userCoordinates.latitude,
+            userCoordinates.longitude,
+            placeLocation.lat,
+            placeLocation.lng
+          );
+          distanceFormatted = formatDistance(distance);
+      } else {
+        // Fallback: estimate distance based on location name
+        // This is a simple heuristic - in production you'd want more sophisticated geocoding
+        const locationText = (place.vicinity || place.formatted_address || '').toLowerCase();
+        if (locationText.includes('quận 1') || locationText.includes('district 1')) {
+          distance = Math.random() * 2 + 0.5; // 0.5-2.5km
+          distanceFormatted = formatDistance(distance);
+        } else if (locationText.includes('quận 2') || locationText.includes('district 2')) {
+          distance = Math.random() * 3 + 2; // 2-5km
+          distanceFormatted = formatDistance(distance);
+        } else {
+          distance = Math.random() * 5 + 1; // 1-6km
+          distanceFormatted = formatDistance(distance);
+        }
+      }
+    } else {
+      // No user coordinates available
+      distance = null;
+      distanceFormatted = formatDistance(distance);
+    }
+      
+      return {
+        ...place,
+        // Add enhanced metadata
+        has_dietary_options: checkDietaryOptions(place, dietary_restrictions),
+        price_category: getPriceCategory(place.price_level),
+        cuisine_indicators: extractCuisineIndicators(place),
+        rating_penalty: calculateRatingPenalty(place.rating),
+        low_rating_reason: generateLowRatingReason(place),
+        distance_score: calculateDistanceScore(place, userIntent.radius),
+        mood_match: calculateMoodMatch(place, userIntent.mood),
+        distance: distance,
+        distance_formatted: distanceFormatted
+      };
+    });
+
+    // Sort and limit results
+    results = results
+      .sort((a, b) => {
+        // Enhanced scoring algorithm with personalization
+        const scoreA = calculateOverallScore(a, userIntent, userCoordinates?.userId);
+        const scoreB = calculateOverallScore(b, userIntent, userCoordinates?.userId);
+        return scoreB - scoreA;
+      })
+      .slice(0, 20);
+
+    logger.success(`Filtered to ${results.length} results`);
     return results;
   } catch (err) {
-    console.error("Google API fetch error:", err);
-    console.error("This could be: network issue, API key problem, or quota exceeded");
+    logger.error("Google API search error:", err);
     return [];
   }
 }
 
-// Helper function to check dietary options
-function checkDietaryOptions(place, dietaryRestrictions) {
-  if (!dietaryRestrictions || dietaryRestrictions.length === 0) return {};
+// Enhanced scoring algorithm with personalization
+function calculateOverallScore(place, userIntent, userId = null) {
+  let score = 0;
   
-  const indicators = {};
-  const nameAndTypes = `${place.name || ''} ${place.types?.join(' ') || ''}`.toLowerCase();
+  // Base rating (weighted by review count) - 25% weight
+  const rating = place.rating || 0;
+  const reviewCount = place.user_ratings_total || 0;
+  score += rating * Math.log(reviewCount + 1) * 0.25;
   
-  dietaryRestrictions.forEach(restriction => {
-    switch (restriction) {
-      case 'halal':
-        indicators.halal = nameAndTypes.includes('halal') || nameAndTypes.includes('muslim');
-        break;
-      case 'vegetarian':
-        indicators.vegetarian = nameAndTypes.includes('vegetarian') || nameAndTypes.includes('veggie');
-        break;
-      case 'vegan':
-        indicators.vegan = nameAndTypes.includes('vegan');
-        break;
-      case 'gluten-free':
-        indicators.glutenFree = nameAndTypes.includes('gluten') || nameAndTypes.includes('gluten-free');
-        break;
-    }
-  });
+  // Distance factor - 20% weight
+  score += place.distance_score * 0.2;
   
-  return indicators;
+  // Price match - 15% weight
+  score += calculatePriceMatch(place.price_level, userIntent.price_range) * 0.15;
+  
+  // Dietary match - 15% weight
+  score += calculateDietaryMatch(place, userIntent.dietary_restrictions) * 0.15;
+  
+  // Mood match - 10% weight
+  score += place.mood_match * 0.1;
+  
+  // Cuisine match - 10% weight
+  score += calculateCuisineMatch(place, userIntent.search_term) * 0.1;
+  
+  // Personalization score - 5% weight
+  if (userId) {
+    const personalizationScore = calculatePersonalizationScore(place, userId);
+    score += personalizationScore * 0.05;
+  }
+  
+  return score;
 }
 
-// Helper function to categorize price levels
-function getPriceCategory(priceLevel) {
-  const categories = {
+// Calculate personalization score based on user preferences
+function calculatePersonalizationScore(place, userId) {
+  const profile = userProfiles.get(userId);
+  if (!profile || profile.totalInteractions < 2) {
+    return 0; // No personalization data available
+  }
+  
+  let personalizationScore = 0;
+  const preferences = profile.preferences;
+  
+  // Check if restaurant is in favorites
+  if (profile.favoriteRestaurants.has(place.name)) {
+    personalizationScore += 0.8;
+  }
+  
+  // Check if restaurant is disliked
+  if (profile.dislikedRestaurants.has(place.name)) {
+    personalizationScore -= 0.5;
+  }
+  
+  // Check cuisine preferences
+  if (place.types) {
+    place.types.forEach(type => {
+      const preferenceWeight = preferences[PREFERENCE_CATEGORIES.CUISINE].get(type) || 0;
+      if (preferenceWeight > 0) {
+        personalizationScore += Math.min(preferenceWeight * 0.1, 0.3);
+      } else if (preferenceWeight < 0) {
+        personalizationScore += Math.max(preferenceWeight * 0.1, -0.2);
+      }
+    });
+  }
+  
+  // Check price preferences
+  if (place.price_level !== undefined) {
+    const priceRange = getPriceRangeFromLevel(place.price_level);
+    const preferenceWeight = preferences[PREFERENCE_CATEGORIES.PRICE_RANGE].get(priceRange) || 0;
+    if (preferenceWeight > 0) {
+      personalizationScore += Math.min(preferenceWeight * 0.1, 0.2);
+    } else if (preferenceWeight < 0) {
+      personalizationScore += Math.max(preferenceWeight * 0.1, -0.1);
+    }
+  }
+  
+  return Math.max(Math.min(personalizationScore, 1), -0.5); // Clamp between -0.5 and 1
+}
+
+// User profiles and preference tracking
+const userProfiles = new Map();
+const conversationHistory = new Map();
+
+// User preference categories
+const PREFERENCE_CATEGORIES = {
+  CUISINE: 'cuisine',
+  PRICE_RANGE: 'price_range',
+  MOOD: 'mood',
+  OCCASION: 'occasion',
+  DIETARY: 'dietary',
+  LOCATION: 'location',
+  TIME: 'time'
+};
+
+// Initialize user profile
+function initializeUserProfile(userId) {
+  if (!userProfiles.has(userId)) {
+    userProfiles.set(userId, {
+      id: userId,
+      preferences: {
+        [PREFERENCE_CATEGORIES.CUISINE]: new Map(),
+        [PREFERENCE_CATEGORIES.PRICE_RANGE]: new Map(),
+        [PREFERENCE_CATEGORIES.MOOD]: new Map(),
+        [PREFERENCE_CATEGORIES.OCCASION]: new Map(),
+        [PREFERENCE_CATEGORIES.DIETARY]: new Map(),
+        [PREFERENCE_CATEGORIES.LOCATION]: new Map(),
+        [PREFERENCE_CATEGORIES.TIME]: new Map()
+      },
+      interactionHistory: [],
+      favoriteRestaurants: new Set(),
+      dislikedRestaurants: new Set(),
+      lastUpdated: new Date(),
+      totalInteractions: 0
+    });
+  }
+  return userProfiles.get(userId);
+}
+
+// Update user preferences based on interaction
+function updateUserPreferences(userId, interaction) {
+  const profile = initializeUserProfile(userId);
+  const { query, selectedRestaurant, rejectedRestaurants = [], userIntent } = interaction;
+  
+  // Update interaction history
+  profile.interactionHistory.push({
+    timestamp: new Date(),
+    query,
+    selectedRestaurant,
+    rejectedRestaurants,
+    userIntent
+  });
+  
+  // Keep only last 50 interactions
+  if (profile.interactionHistory.length > 50) {
+    profile.interactionHistory = profile.interactionHistory.slice(-50);
+  }
+  
+  // Update preferences based on selection
+  if (selectedRestaurant) {
+    profile.favoriteRestaurants.add(selectedRestaurant.name);
+    
+    // Learn from selected restaurant characteristics
+    learnFromRestaurant(profile, selectedRestaurant, userIntent, 1.0);
+  }
+  
+  // Learn from rejected restaurants
+  rejectedRestaurants.forEach(restaurant => {
+    profile.dislikedRestaurants.add(restaurant.name);
+    learnFromRestaurant(profile, restaurant, userIntent, -0.5);
+  });
+  
+  profile.totalInteractions++;
+  profile.lastUpdated = new Date();
+  
+  logger.info(`Updated preferences for user ${userId}`, {
+    totalInteractions: profile.totalInteractions,
+    favoriteCount: profile.favoriteRestaurants.size,
+    dislikedCount: profile.dislikedRestaurants.size
+  });
+}
+
+// Learn from restaurant characteristics
+function learnFromRestaurant(profile, restaurant, userIntent, weight) {
+  const preferences = profile.preferences;
+  
+  // Learn cuisine preferences
+  if (restaurant.types) {
+    restaurant.types.forEach(type => {
+      const currentWeight = preferences[PREFERENCE_CATEGORIES.CUISINE].get(type) || 0;
+      preferences[PREFERENCE_CATEGORIES.CUISINE].set(type, currentWeight + weight);
+    });
+  }
+  
+  // Learn price preferences
+  if (restaurant.price_level !== undefined) {
+    const priceRange = getPriceRangeFromLevel(restaurant.price_level);
+    const currentWeight = preferences[PREFERENCE_CATEGORIES.PRICE_RANGE].get(priceRange) || 0;
+    preferences[PREFERENCE_CATEGORIES.PRICE_RANGE].set(priceRange, currentWeight + weight);
+  }
+  
+  // Learn mood preferences
+  if (userIntent.mood) {
+    const currentWeight = preferences[PREFERENCE_CATEGORIES.MOOD].get(userIntent.mood) || 0;
+    preferences[PREFERENCE_CATEGORIES.MOOD].set(userIntent.mood, currentWeight + weight);
+  }
+  
+  // Learn occasion preferences
+  if (userIntent.special_occasions && userIntent.special_occasions.length > 0) {
+    userIntent.special_occasions.forEach(occasion => {
+      const currentWeight = preferences[PREFERENCE_CATEGORIES.OCCASION].get(occasion) || 0;
+      preferences[PREFERENCE_CATEGORIES.OCCASION].set(occasion, currentWeight + weight);
+    });
+  }
+  
+  // Learn dietary preferences
+  if (userIntent.dietary_restrictions && userIntent.dietary_restrictions.length > 0) {
+    userIntent.dietary_restrictions.forEach(dietary => {
+      const currentWeight = preferences[PREFERENCE_CATEGORIES.DIETARY].get(dietary) || 0;
+      preferences[PREFERENCE_CATEGORIES.DIETARY].set(dietary, currentWeight + weight);
+    });
+  }
+}
+
+// Get price range from price level
+function getPriceRangeFromLevel(priceLevel) {
+  const priceRanges = {
     0: 'budget',
-    1: 'budget', 
+    1: 'budget',
     2: 'moderate',
     3: 'expensive',
     4: 'luxury'
   };
+  return priceRanges[priceLevel] || 'moderate';
+}
+
+// Get user's top preferences
+function getUserTopPreferences(userId, category, limit = 5) {
+  const profile = userProfiles.get(userId);
+  if (!profile) return [];
+  
+  const preferences = profile.preferences[category];
+  return Array.from(preferences.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([key, weight]) => ({ key, weight }));
+}
+
+// Generate personalized search suggestions
+function generatePersonalizedSuggestions(userId, baseQuery) {
+  const profile = userProfiles.get(userId);
+  if (!profile || profile.totalInteractions < 3) {
+    return []; // Not enough data for personalization
+  }
+  
+  const suggestions = [];
+  
+  // Add top cuisine preferences
+  const topCuisines = getUserTopPreferences(userId, PREFERENCE_CATEGORIES.CUISINE, 3);
+  topCuisines.forEach(({ key }) => {
+    if (!baseQuery.toLowerCase().includes(key.toLowerCase())) {
+      suggestions.push(`${baseQuery} ${key}`);
+    }
+  });
+  
+  // Add mood-based suggestions
+  const topMoods = getUserTopPreferences(userId, PREFERENCE_CATEGORIES.MOOD, 2);
+  topMoods.forEach(({ key }) => {
+    if (key !== 'casual' && !baseQuery.toLowerCase().includes(key)) {
+      suggestions.push(`${key} ${baseQuery}`);
+    }
+  });
+  
+  return suggestions.slice(0, 3);
+}
+
+// Detect distance-related keywords and suggest appropriate radius
+function detectDistanceIntent(query, searchType = null) {
+  const nearbyKeywords = ['nearby', 'close', 'walking distance', 'around here', 'near me', 'close by'];
+  const areaKeywords = ['in the area', 'around', 'within 2km', 'within 1km'];
+  const cityKeywords = ['in the city', 'anywhere in', 'in [city]'];
+  
+  const lowerQuery = query.toLowerCase();
+  
+  if (nearbyKeywords.some(keyword => lowerQuery.includes(keyword))) {
+    return 1; // 1km for nearby
+  } else if (areaKeywords.some(keyword => lowerQuery.includes(keyword))) {
+    return 2; // 2km for area searches
+  } else if (cityKeywords.some(keyword => lowerQuery.includes(keyword))) {
+    return 10; // 10km for city-wide searches
+  }
+  
+  return 5; // Default radius
+}
+
+// Distance calculation using Haversine formula
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const distance = R * c;
+  return distance;
+}
+
+// Format distance for display
+function formatDistance(distance) {
+  if (distance === null || distance === undefined || isNaN(distance)) {
+    return "N/A";
+  }
+  
+  if (distance < 1) {
+    return `${Math.round(distance * 1000)}m`;
+  } else if (distance < 10) {
+    return `${distance.toFixed(1)}km`;
+  } else {
+    return `${Math.round(distance)}km`;
+  }
+}
+
+// Get place details with coordinates
+async function getPlaceDetails(placeId) {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.status === 'OK' && data.result && data.result.geometry) {
+      return data.result.geometry.location;
+    }
+    return null;
+  } catch (error) {
+    logger.error("Error getting place details:", error);
+    return null;
+  }
+}
+
+// Helper functions
+function checkDietaryOptions(place, restrictions) {
+  if (!restrictions || restrictions.length === 0) return "Standard options available";
+  
+  const placeText = `${place.name} ${place.types?.join(' ') || ''}`.toLowerCase();
+  
+  const indicators = [];
+  restrictions.forEach(restriction => {
+    const restrictionLower = restriction.toLowerCase();
+    if (restrictionLower.includes('vegetarian') && placeText.includes('vegetarian')) {
+      indicators.push('Vegetarian options');
+    }
+    if (restrictionLower.includes('vegan') && placeText.includes('vegan')) {
+      indicators.push('Vegan options');
+    }
+    if (restrictionLower.includes('halal') && placeText.includes('halal')) {
+      indicators.push('Halal certified');
+    }
+  });
+  
+  return indicators.length > 0 ? indicators.join(', ') : 'Standard options available';
+}
+
+function getPriceCategory(priceLevel) {
+  const categories = {
+    0: 'free',
+    1: 'budget',
+    2: 'moderate', 
+    3: 'expensive',
+    4: 'very_expensive'
+  };
   return categories[priceLevel] || 'moderate';
 }
 
-// Helper function to extract cuisine indicators
 function extractCuisineIndicators(place) {
   const types = place.types || [];
-  const cuisineTypes = [
-    'italian', 'chinese', 'japanese', 'indian', 'mexican', 'thai', 
-    'korean', 'french', 'american', 'mediterranean', 'middle_eastern'
-  ];
+  const cuisines = ['korean', 'japanese', 'chinese', 'thai', 'indian', 'mexican', 'italian', 'french', 'vietnamese'];
   
-  return cuisineTypes.filter(cuisine => 
+  return cuisines.filter(cuisine => 
     types.some(type => type.includes(cuisine))
   );
 }
 
-// Calculate rating penalty (higher penalty for lower ratings)
 function calculateRatingPenalty(rating) {
-  if (!rating) return 0.9; // Heavy penalty for no rating
+  if (!rating) return 0.5;
   
-  if (rating >= 4.8) return 0; // No penalty for 4.8+
-  if (rating >= 4.6) return 0.1; // Light penalty for 4.6-4.7
-  if (rating >= 4.4) return 0.3; // Medium penalty for 4.4-4.5
+  if (rating >= 4.8) return 0;
+  if (rating >= 4.6) return 0.1;
+  if (rating >= 4.4) return 0.3;
   
-  return 0.9; // Heavy penalty for below 4.4 (shouldn't happen due to filter)
+  return 0.5;
 }
 
-// Generate reasoning for lower-rated places
 function generateLowRatingReason(place) {
-  const rating = place.rating;
-  if (!rating || rating >= 4.6) return null;
-  
+  const rating = place.rating || 0;
   const reasons = {
-    4.5: [
-      "While not the highest rated, this place offers excellent value and authentic local experience",
-      "Slightly lower rating but known for consistent quality and friendly service",
-      "Good option with solid reviews and unique local charm"
+    4.6: [
+      "While not the highest rated, this place offers good value and consistent quality",
+      "Solid choice with reliable service and decent food quality",
+      "Good option with reasonable prices and acceptable quality"
     ],
     4.4: [
-      "This place has a dedicated following despite mixed reviews - often due to specific preferences",
-      "Lower rating but offers something unique that other highly-rated places don't have",
-      "Good choice if you're looking for authentic local experience over perfect service"
+      "Budget-friendly option with decent food quality",
+      "Affordable choice with basic but satisfactory offerings",
+      "Good value for money despite lower rating"
+    ],
+    4.2: [
+      "Local favorite with authentic flavors despite mixed reviews",
+      "Hidden gem that locals love, though ratings vary",
+      "Consistent quality with loyal following"
     ]
   };
   
   const ratingKey = Math.floor(rating * 10) / 10;
-  const reasonList = reasons[ratingKey] || reasons[4.4];
+  const reasonList = reasons[ratingKey] || reasons[4.2];
   return reasonList[Math.floor(Math.random() * reasonList.length)];
 }
 
-// --- Step C: Advanced Filtering and AI-Powered Recommendations ---
+function calculateDistanceScore(place, maxRadius) {
+  if (!place.distance) return 0.5; // Default score if no distance available
+  
+  // Convert radius from km to the same unit as distance
+  const radiusKm = maxRadius || 5;
+  
+  if (place.distance <= radiusKm) {
+    // Higher score for closer places, with bonus for very close places
+    if (place.distance <= 0.3) {
+      return 1.0; // Perfect score for super close places (300m)
+    } else if (place.distance <= 0.5) {
+      return 0.95; // Excellent score for very close places (500m)
+    } else if (place.distance <= 1.0) {
+      return 0.9; // Great score for walking distance (1km)
+    } else {
+      return 1 - (place.distance / radiusKm) * 0.3;
+    }
+  } else {
+    // Lower score for places outside radius
+    return 0.1;
+  }
+}
+
+function calculateMoodMatch(place, mood) {
+  // Placeholder - would analyze place characteristics vs mood
+  return 0.7; // Default score
+}
+
+function calculatePriceMatch(priceLevel, userPriceRange) {
+  const priceMapping = {
+    'budget': [0, 1],
+    'moderate': [1, 2, 3],
+    'expensive': [3, 4],
+    'luxury': [4]
+  };
+  
+  const userLevels = priceMapping[userPriceRange] || [1, 2, 3];
+  return userLevels.includes(priceLevel) ? 1 : 0.5;
+}
+
+function calculateDietaryMatch(place, restrictions) {
+  if (!restrictions || restrictions.length === 0) return 1;
+  
+  const placeText = `${place.name} ${place.types?.join(' ') || ''}`.toLowerCase();
+  let matchCount = 0;
+  
+  restrictions.forEach(restriction => {
+    if (placeText.includes(restriction.toLowerCase())) {
+      matchCount++;
+    }
+  });
+  
+  return matchCount / restrictions.length;
+}
+
+function calculateCuisineMatch(place, searchTerm) {
+  const placeTypes = place.types || [];
+  const searchLower = searchTerm.toLowerCase();
+  
+  for (const type of placeTypes) {
+    if (type.includes(searchLower) || searchLower.includes(type)) {
+      return 1;
+    }
+  }
+  
+  return 0.5;
+}
+
+// Enhanced AI filtering with better error handling
 async function filterResults(userIntent, results) {
   if (!results || results.length === 0) return [];
   
   try {
     if (!openai) {
-      console.error("OpenAI not initialized - using basic filtering");
-      return results.slice(0, 3).map(place => ({
-        ...safeRestaurant(place),
-        reason: `Good option based on your search criteria`,
-        dietary_match: "Standard options available",
-        occasion_fit: "Suitable for your needs",
-        unique_selling_point: "Well-rated establishment"
-      }));
-    }
-    // Prepare context for AI analysis
-    const context = {
-      user_intent: userIntent,
-      total_results: results.length,
-      dietary_restrictions: userIntent.dietary_restrictions || [],
-      special_occasions: userIntent.special_occasions || [],
-      price_range: userIntent.price_range || 'moderate',
-      ambiance: userIntent.ambiance || [],
-      features: userIntent.features || [],
-      min_rating: userIntent.min_rating || 0,
-      min_reviews: userIntent.min_reviews || 0
-    };
+      logger.warn("OpenAI not available - using basic filtering");
+  return results.slice(0, 3).map(place => ({
+    ...safeRestaurant(place),
+        reason: `Good option based on your search for "${userIntent.search_term}"`,
+    dietary_match: "Standard options available",
+    occasion_fit: "Suitable for your needs",
+    unique_selling_point: "Well-rated establishment"
+  }));
+}
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are an expert food recommendation AI with deep knowledge of restaurants, dietary requirements, and special occasions. You provide BETTER recommendations than Google Maps by understanding context, quality, and user intent.
-
-          Your task: Analyze restaurant data and provide the TOP 3 BEST recommendations based on user intent.
+          content: `You are an expert food recommendation AI. Analyze restaurant data and provide the TOP 3 BEST recommendations.
 
           User Context:
-          - Dietary Restrictions: ${context.dietary_restrictions.join(', ') || 'None specified'}
-          - Special Occasions: ${context.special_occasions.join(', ') || 'None specified'}
-          - Price Range: ${context.price_range}
-          - Desired Ambiance: ${context.ambiance.join(', ') || 'Any'}
-          - Required Features: ${context.features.join(', ') || 'Any'}
-          - Quality Requirements: ${context.min_rating > 0 ? `Min ${context.min_rating} stars` : 'Any rating'} ${context.min_reviews > 0 ? `, Min ${context.min_reviews} reviews` : ''}
+          - Search Intent: ${userIntent.search_term}
+          - Dietary Restrictions: ${userIntent.dietary_restrictions?.join(', ') || 'None specified'}
+          - Special Occasions: ${userIntent.special_occasions?.join(', ') || 'None specified'}
+          - Price Range: ${userIntent.price_range}
+          - Mood: ${userIntent.mood || 'casual'}
+          - Location: ${userIntent.location}
 
-          ADVANTAGES OVER GOOGLE MAPS:
-          1. Context-aware filtering (Google just shows popular places)
-          2. Dietary restriction intelligence (Google doesn't understand dietary needs well)
-          3. Special occasion matching (Google doesn't consider romantic vs business vs family)
-          4. Quality over quantity (Google shows too many mediocre options)
-          5. Personalized explanations (Google gives generic info)
-
-          RATING QUALITY REQUIREMENTS:
-          - NEVER recommend anything below 4.4 stars
-          - Heavily favor 4.8+ star places (no penalty)
-          - Light penalty for 4.6-4.7 stars
-          - Medium penalty for 4.4-4.5 stars (least likely to suggest)
-          - If recommending 4.4-4.5 star places, provide strong justification
-
-          For each recommendation, provide:
-          1. A compelling reason WHY this place is perfect for their specific needs
-          2. How it matches their dietary restrictions (if any)
-          3. Why it's suitable for their special occasion (if any)
-          4. What makes it BETTER than typical Google search results
-          5. If rating is 4.6 or below, include the low_rating_reason provided
-          6. Specific details that show you understand their unique requirements
-
-          CRITICAL: You MUST return ONLY valid JSON array. Do NOT use markdown code blocks. Do NOT add explanations. Do NOT add any text before or after the JSON. Just return the raw JSON array.
-
-          Output JSON array with exactly 3 recommendations:
+          Return ONLY valid JSON array with exactly 3 recommendations:
           [
             {
               "name": "Restaurant Name",
-              "location": "Address",
+              "location": "Address", 
               "price": "Price Level",
               "rating": "X.X",
-              "reason": "Detailed explanation of why this is perfect for their specific needs",
-              "dietary_match": "How it matches their dietary requirements",
-              "occasion_fit": "Why it's perfect for their special occasion",
-              "unique_selling_point": "What makes this better than a typical search result"
+              "distance": "X.X",
+              "distance_formatted": "X.Xkm",
+              "reason": "Detailed explanation of why this is perfect for the user",
+              "dietary_match": "How it matches dietary requirements",
+              "occasion_fit": "Why it's perfect for their occasion/mood",
+              "unique_selling_point": "What makes this better than typical search results"
             }
-          ]
-
-          Focus on QUALITY over quantity. Be specific and helpful.`
+          ]`
         },
         {
           role: "user",
@@ -501,44 +982,30 @@ async function filterResults(userIntent, results) {
             price: place.price_level ? "$".repeat(place.price_level) : "N/A",
             rating: place.rating,
             types: place.types,
-            has_dietary_options: place.has_dietary_options,
+            user_ratings_total: place.user_ratings_total,
             price_category: place.price_category,
             cuisine_indicators: place.cuisine_indicators,
-            user_ratings_total: place.user_ratings_total,
-            photos: place.photos ? place.photos.length : 0,
-            rating_penalty: place.rating_penalty,
-            low_rating_reason: place.low_rating_reason
+            distance: place.distance,
+            distance_formatted: place.distance_formatted
           })), null, 2)}
 
-          Please select the TOP 3 that best match the user's specific requirements.`
+          Please select the TOP 3 that best match the user's requirements and mood.`
         }
-      ]
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
     });
 
-    // Extract JSON from potential markdown code blocks
     let content = completion.choices[0].message.content.trim();
-    
-    // More robust markdown removal
     content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
     
-    // Try to find JSON array in the content
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       content = jsonMatch[0];
     }
     
-    console.log("🔍 Filter content:", content.substring(0, 100) + "...");
+    let parsed = JSON.parse(content);
     
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch (parseError) {
-      console.error("Filter JSON Parse Error:", parseError.message);
-      console.error("Filter content that failed to parse:", content);
-      throw new Error(`Failed to parse AI filter response: ${parseError.message}`);
-    }
-    
-    // Validate response structure
     if (!Array.isArray(parsed)) {
       if (parsed && typeof parsed === 'object') {
         parsed = [parsed];
@@ -547,48 +1014,49 @@ async function filterResults(userIntent, results) {
       }
     }
     
-    // Validate each recommendation has required fields
     parsed = parsed.filter(rec => rec && rec.name && rec.location);
     
-    console.log(`🤖 AI returned ${parsed.length} recommendations`);
+    logger.info(`AI returned ${parsed.length} recommendations`);
     
-    // Pad with fallbacks if needed to ensure we always have 3 results
+    // Ensure we have exactly 3 recommendations
     while (parsed.length < 3 && results.length > parsed.length) {
       const fallbackIndex = parsed.length;
       if (results[fallbackIndex]) {
         parsed.push({
           ...safeRestaurant(results[fallbackIndex]),
-          reason: `Good option based on your search criteria`,
+          reason: `Good option based on your search for "${userIntent.search_term}"`,
           dietary_match: "Standard options available",
           occasion_fit: "Suitable for your needs",
-          unique_selling_point: "Well-rated establishment"
+          unique_selling_point: "Well-rated establishment",
+          distance: results[fallbackIndex].distance,
+          distance_formatted: results[fallbackIndex].distance_formatted
         });
-        console.log(`➕ Added fallback recommendation ${parsed.length}: ${results[fallbackIndex].name}`);
       }
     }
     
-    // If we still don't have 3, duplicate the best ones
+    // Fill remaining slots with alternatives if needed
     while (parsed.length < 3 && parsed.length > 0) {
       const duplicateIndex = parsed.length % parsed.length;
       const duplicate = { ...parsed[duplicateIndex] };
       duplicate.name = duplicate.name + " (Alternative)";
       duplicate.reason = duplicate.reason + " - Another great option in the area";
       parsed.push(duplicate);
-      console.log(`🔄 Duplicated recommendation to reach 3 total`);
     }
 
-    console.log(`✅ Final recommendations count: ${parsed.length}`);
+    logger.success(`Final recommendations count: ${parsed.length}`);
     return parsed.slice(0, 3);
   } catch (err) {
-    console.error("AI Filter error:", err);
+    logger.error("AI Filter error:", err);
     
-    // Fallback to basic filtering with enhanced reasons
+    // Enhanced fallback with better error handling
     let fallbackResults = results.slice(0, 3).map(place => ({
       ...safeRestaurant(place),
-      reason: generateFallbackReason(place, userIntent),
+      reason: `Good option based on your search for "${userIntent.search_term}"`,
       dietary_match: "Please check with restaurant directly",
       occasion_fit: "Suitable for various occasions",
-      unique_selling_point: "Well-rated establishment"
+      unique_selling_point: "Well-rated establishment",
+      distance: place.distance,
+      distance_formatted: place.distance_formatted
     }));
     
     // Ensure we have exactly 3 results
@@ -597,114 +1065,253 @@ async function filterResults(userIntent, results) {
       if (results[fallbackIndex]) {
         fallbackResults.push({
           ...safeRestaurant(results[fallbackIndex]),
-          reason: generateFallbackReason(results[fallbackIndex], userIntent),
+          reason: `Good option based on your search for "${userIntent.search_term}"`,
           dietary_match: "Please check with restaurant directly",
           occasion_fit: "Suitable for various occasions",
-          unique_selling_point: "Well-rated establishment"
+          unique_selling_point: "Well-rated establishment",
+          distance: results[fallbackIndex].distance,
+          distance_formatted: results[fallbackIndex].distance_formatted
         });
       }
     }
     
-    // If we still don't have 3, duplicate the best ones
-    while (fallbackResults.length < 3 && fallbackResults.length > 0) {
-      const duplicateIndex = fallbackResults.length % fallbackResults.length;
-      const duplicate = { ...fallbackResults[duplicateIndex] };
-      duplicate.name = duplicate.name + " (Alternative)";
-      duplicate.reason = duplicate.reason + " - Another great option in the area";
-      fallbackResults.push(duplicate);
-    }
-    
-    console.log(`🔄 Fallback recommendations count: ${fallbackResults.length}`);
+    logger.warn(`Fallback recommendations count: ${fallbackResults.length}`);
     return fallbackResults.slice(0, 3);
   }
 }
 
-// Helper function to generate fallback reasons
-function generateFallbackReason(place, userIntent) {
-  const reasons = [];
-  
-  if (place.rating && place.rating >= 4.0) {
-    reasons.push(`Highly rated (${place.rating}/5)`);
-  }
-  
-  if (userIntent.dietary_restrictions && userIntent.dietary_restrictions.length > 0) {
-    reasons.push(`May have ${userIntent.dietary_restrictions.join(', ')} options`);
-  }
-  
-  if (userIntent.special_occasions && userIntent.special_occasions.length > 0) {
-    reasons.push(`Good for ${userIntent.special_occasions.join(', ')}`);
-  }
-  
-  if (place.price_category === userIntent.price_range) {
-    reasons.push(`Matches your ${userIntent.price_range} budget`);
-  }
-  
-  return reasons.length > 0 ? reasons.join(', ') : 'Good option based on your search';
-}
-
-// Enhanced search with multiple strategies to beat Google
-async function enhancedSearch(userIntent) {
-  const strategies = [
-    // Strategy 1: Direct search with all parameters
-    () => searchGoogle(userIntent),
-    
-    // Strategy 2: Search with broader terms if no results
-    () => {
-      if (userIntent.cuisine_type && userIntent.cuisine_type !== 'any') {
-        const broadIntent = { ...userIntent, query: userIntent.cuisine_type };
-        return searchGoogle(broadIntent);
-      }
-      return Promise.resolve([]);
-    },
-    
-    // Strategy 3: Search by domain if specific query fails
-    () => {
-      if (userIntent.domain !== 'food') {
-        const domainIntent = { ...userIntent, query: userIntent.domain };
-        return searchGoogle(domainIntent);
-      }
-      return Promise.resolve([]);
-    }
-  ];
-  
-  for (const strategy of strategies) {
-    try {
-      const results = await strategy();
-      if (results && results.length > 0) {
-        console.log(`✅ Strategy successful: Found ${results.length} results`);
-        return results;
-      }
-    } catch (error) {
-      console.log(`❌ Strategy failed:`, error.message);
-    }
-  }
-  
-  return [];
-}
-
-// --- API Routes ---
-// Serve the main page
+// API Routes
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(join(__dirname, "public", "index.html"));
+});
+
+app.post("/recommend", async (req, res) => {
+  try {
+    const { query, userLocation, searchType, priceMode, userCoordinates } = req.body;
+    
+    logger.info("Recommendation request:", { query, userLocation, searchType, priceMode });
+    
+    if (!query) {
+      return res.status(400).json({ 
+        error: "Query is required",
+        suggestions: ["Try: 'good food near me'", "Try: 'korean bbq'", "Try: 'cheap lunch'"]
+      });
+    }
+
+    // Validate configuration
+    if (!validateConfig()) {
+      logger.warn("Configuration validation failed - using fallback");
+      const fallbackRecs = fallbackRestaurants.slice(0, 3).map(restaurant => ({
+        ...restaurant,
+        reason: "Popular local recommendation (API configuration issue)",
+        dietary_match: "Please check with restaurant directly",
+        occasion_fit: "Suitable for various occasions",
+        unique_selling_point: "Well-known local establishment"
+      }));
+      
+      return res.json({
+        recommendations: fallbackRecs,
+        intent: { search_term: query, location: userLocation || "Singapore" },
+        metadata: {
+          total_found: fallbackRecs.length,
+          search_location: userLocation,
+          is_fallback: true,
+          fallback_reason: "configuration_error"
+        }
+      });
+    }
+
+    // Step 1: Parse user intent with context
+    const context = {
+      searchHistory: [], // Would be populated from user session
+      preferences: {}, // Would be populated from user profile
+      mood: searchType === 'surprise-me' ? 'adventure' : 'casual'
+    };
+    
+    const intent = await parseUserIntent(query, userLocation, context, searchType);
+    
+    if (priceMode === 'broke') {
+      intent.price_range = 'budget';
+    } else if (priceMode === 'ballin') {
+      intent.price_range = 'expensive';
+    }
+
+    // Override intent based on search type (this should happen AFTER keyword detection)
+    if (searchType === 'super-nearby') {
+      intent.radius = 0.3; // 300m
+    } else if (searchType === 'imma-walk') {
+      intent.radius = 0.5; // 500m
+    } else if (searchType === 'surprise-me') {
+      intent.radius = 10; // 10km for more variety
+      intent.mood = 'adventure';
+    }
+
+    // Step 2: Search Google Maps
+    const googleResults = await searchGoogle(intent, userCoordinates);
+    
+    if (googleResults.length === 0) {
+      logger.warn("No results from Google Maps");
+      return res.json({
+        recommendations: [],
+        intent,
+        metadata: {
+          total_found: 0,
+          search_location: userLocation,
+          suggestions: [
+            {
+          action: "broaden_search",
+          message: "Try removing some filters to see more options",
+          new_search_type: null,
+          new_price_mode: "off"
+            }
+          ]
+        }
+      });
+    }
+
+    // Step 3: Filter results with AI
+    const recommendations = await filterResults(intent, googleResults);
+    
+    logger.success(`Found ${recommendations.length} recommendations`);
+
+    res.json({
+      recommendations,
+      intent,
+      metadata: {
+        total_found: googleResults.length,
+        search_location: userLocation,
+        confidence: intent.confidence || 0.8,
+        needs_clarification: intent.needs_clarification || false
+      }
+    });
+
+  } catch (error) {
+    logger.error("Recommendation error:", error);
+    res.status(500).json({ 
+      error: "Failed to get recommendations",
+      details: error.message,
+      suggestions: ["Try again in a moment", "Check your internet connection", "Try a simpler search query"]
+    });
+  }
 });
 
 app.get("/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    message: "API running 🚀",
+  const configValid = validateConfig();
+  res.json({
+    status: configValid ? "ok" : "degraded",
+    message: configValid ? "API running 🚀" : "API running with limited functionality ⚠️",
     env_check: {
       openai_key: process.env.OPENAI_API_KEY ? "✅ Set" : "❌ Missing",
       google_key: process.env.GOOGLE_MAPS_API_KEY ? "✅ Set" : "❌ Missing"
+    },
+    features: {
+      ai_recommendations: !!openai,
+      google_search: !!process.env.GOOGLE_MAPS_API_KEY,
+      fallback_mode: !configValid,
+      personalization: true,
+      user_profiles: userProfiles.size
     }
   });
 });
 
-// Simple test endpoint
-app.get("/test", (req, res) => {
-  res.json({ message: "Test endpoint working!", timestamp: new Date().toISOString() });
+// User interaction tracking endpoint
+app.post("/interaction", (req, res) => {
+  try {
+    const { userId, query, selectedRestaurant, rejectedRestaurants, userIntent } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+    
+    // Update user preferences
+    updateUserPreferences(userId, {
+      query,
+      selectedRestaurant,
+      rejectedRestaurants,
+      userIntent
+    });
+    
+    res.json({ 
+      success: true, 
+      message: "Interaction recorded successfully",
+      totalInteractions: userProfiles.get(userId)?.totalInteractions || 0
+    });
+    
+  } catch (error) {
+    logger.error("Error recording interaction:", error);
+    res.status(500).json({ error: "Failed to record interaction" });
+  }
 });
 
-// Special endpoint for fallback recommendations (only when location/network fails)
+// Get user profile endpoint
+app.get("/profile/:userId", (req, res) => {
+  try {
+    const { userId } = req.params;
+    const profile = userProfiles.get(userId);
+    
+    if (!profile) {
+      return res.status(404).json({ error: "User profile not found" });
+    }
+    
+    // Convert Sets to Arrays for JSON serialization
+    const profileData = {
+      ...profile,
+      favoriteRestaurants: Array.from(profile.favoriteRestaurants),
+      dislikedRestaurants: Array.from(profile.dislikedRestaurants),
+      preferences: Object.fromEntries(
+        Object.entries(profile.preferences).map(([key, value]) => [
+          key, 
+          Object.fromEntries(value)
+        ])
+      )
+    };
+    
+    res.json(profileData);
+    
+  } catch (error) {
+    logger.error("Error fetching user profile:", error);
+    res.status(500).json({ error: "Failed to fetch user profile" });
+  }
+});
+
+// Get personalized suggestions endpoint
+app.get("/suggestions/:userId", (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { query = "" } = req.query;
+    
+    const suggestions = generatePersonalizedSuggestions(userId, query);
+    
+    res.json({
+      suggestions,
+      hasPersonalization: userProfiles.get(userId)?.totalInteractions >= 3
+    });
+    
+  } catch (error) {
+    logger.error("Error generating suggestions:", error);
+    res.status(500).json({ error: "Failed to generate suggestions" });
+  }
+});
+
+app.get("/api/geocode", async (req, res) => {
+  const { lat, lng } = req.query;
+  
+  if (!lat || !lng) {
+    return res.status(400).json({ error: "Latitude and longitude are required" });
+  }
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    res.json(data);
+  } catch (error) {
+    logger.error("Geocoding error:", error);
+    res.status(500).json({ error: "Geocoding failed" });
+  }
+});
+
 app.get("/api/fallback", (req, res) => {
   const fallbackRecs = fallbackRestaurants.slice(0, 3).map(restaurant => ({
     ...restaurant,
@@ -726,147 +1333,36 @@ app.get("/api/fallback", (req, res) => {
   });
 });
 
-// Geocoding endpoint for reverse geocoding
-app.get("/api/geocode", async (req, res) => {
-  const { lat, lng } = req.query;
-  
-  if (!lat || !lng) {
-    return res.status(400).json({ error: "Latitude and longitude are required" });
-  }
-
-  try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    res.json(data);
-  } catch (error) {
-    console.error("Geocoding error:", error);
-    res.status(500).json({ error: "Geocoding failed" });
-  }
+// Error handling middleware
+app.use((err, req, res, next) => {
+  logger.error("Unhandled error:", err);
+  res.status(500).json({
+    error: "Internal server error",
+    message: "Something went wrong. Please try again.",
+    request_id: Date.now() // Simple request ID for debugging
+  });
 });
 
-app.post("/recommend", async (req, res) => {
-  console.log("🚀 /recommend endpoint hit");
-  console.log("📦 Request body:", req.body);
-  
-  const { query, userLocation, searchType, priceMode } = req.body;
-  console.log("💬 User query:", query);
-  console.log("📍 User location:", userLocation);
-  console.log("🔍 Search type:", searchType || 'normal');
-  console.log("💰 Price mode:", priceMode || 'normal');
-
-  try {
-    // Parse user intent with enhanced analysis, using user location if available
-    let intent = await rewriteQuery(query || "restaurant near me", userLocation);
-    
-    // Override price range based on price mode
-    if (priceMode === 'ballin') {
-      intent.price_range = 'luxury';
-    } else if (priceMode === 'broke') {
-      intent.price_range = 'budget';
-    }
-    // If priceMode is 'off' or null, keep the original price_range from AI parsing
-    
-    // Override search parameters based on search type
-    if (searchType === 'super-nearby') {
-      intent.radius = 300; // 300 meters
-    } else if (searchType === 'imma-walk') {
-      intent.radius = 500; // 500 meters
-    } else if (searchType === 'surprise-me') {
-      intent.radius = 10000; // 10km
-      intent.min_rating = 4.5; // At least 4.5 stars
-    }
-    
-    console.log("🎯 Parsed intent:", intent);
-
-    // Use enhanced search with multiple strategies
-    let results = await enhancedSearch(intent);
-    console.log(`🔍 Found ${results.length} results using enhanced search`);
-
-    // AI-powered filtering and recommendations
-    let finalRecs = await filterResults(intent, results);
-
-    // Ensure we have proper array format
-    if (!Array.isArray(finalRecs)) finalRecs = [finalRecs];
-    
-    // Only return actual results - no automatic fallbacks
-    // Fallbacks will be handled by frontend in specific error conditions
-
-    // Add metadata to response
-    const response = {
-      recommendations: finalRecs.slice(0, 3),
-      intent: intent,
-      metadata: {
-        total_found: results.length,
-        dietary_restrictions: intent.dietary_restrictions || [],
-        special_occasions: intent.special_occasions || [],
-        price_range: intent.price_range || 'moderate',
-        search_location: intent.location
-      }
-    };
-
-    console.log("📤 Sending recommendations:", finalRecs.length, "results");
-    res.json(response);
-  } catch (err) {
-    console.error("Recommend error:", err);
-    
-    // Enhanced error response with fallbacks
-    const fallbackRecs = fallbackRestaurants.slice(0, 3).map(restaurant => ({
-      ...restaurant,
-      reason: "Popular local recommendation (fallback)",
-      dietary_match: "Please check with restaurant directly",
-      occasion_fit: "Suitable for various occasions",
-      unique_selling_point: "Well-known local establishment"
-    }));
-    
-    res.json({
-      recommendations: fallbackRecs,
-      intent: { 
-        domain: "food", 
-        query: "restaurant", 
-        location: userLocation || "current location",
-        dietary_restrictions: [],
-        special_occasions: [],
-        price_range: "moderate"
-      },
-      isFallback: true,
-      error: err.message,
-      metadata: {
-        total_found: 0,
-        error_type: "api_error"
-      }
-    });
-  }
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Not found",
+    message: "The requested endpoint does not exist",
+    available_endpoints: ["/", "/recommend", "/health", "/api/geocode", "/api/fallback"]
+  });
 });
 
-// Export the app for Vercel
-export default app;
+// Start server
+const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
 
-// Only start server if not in Vercel environment
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  const PORT = process.env.PORT || 3000;
-
-  // Add error handling for server startup
-  app.listen(PORT, (err) => {
-    if (err) {
-      console.error("❌ Server failed to start:", err);
-      process.exit(1);
-    }
-    console.log(`✅ Server running on http://localhost:${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔑 OpenAI key present: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`);
-    console.log(`🗺️ Google Maps key present: ${process.env.GOOGLE_MAPS_API_KEY ? 'Yes' : 'No'}`);
-  });
-
-  // Handle uncaught exceptions
-  process.on('uncaughtException', (err) => {
-    console.error('❌ Uncaught Exception:', err);
-    process.exit(1);
-  });
-
-  process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-    process.exit(1);
+if (!isProduction) {
+  app.listen(PORT, () => {
+    logger.success(`Server running on http://localhost:${PORT}`);
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`OpenAI key present: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`);
+    logger.info(`Google Maps key present: ${process.env.GOOGLE_MAPS_API_KEY ? 'Yes' : 'No'}`);
   });
 }
+
+export default app;

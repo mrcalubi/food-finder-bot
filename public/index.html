@@ -93,6 +93,7 @@
     let userLocation = null;
     let currentRecommendations = [];
     let userCoordinates = null;
+    let userId = null;
     let priceMode = 'off'; // 'off', 'broke', 'ballin'
     let activeFilters = {
       'super-nearby': false,
@@ -104,6 +105,130 @@
       votes: {},
       options: []
     };
+
+    // Generate or retrieve user ID
+    function getUserId() {
+      if (!userId) {
+        userId = localStorage.getItem('foodFinderUserId');
+        if (!userId) {
+          userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          localStorage.setItem('foodFinderUserId', userId);
+        }
+      }
+      return userId;
+    }
+
+    // Track user interactions for personalization
+    async function trackInteraction(interaction) {
+      try {
+        const response = await fetch('/interaction', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: getUserId(),
+            ...interaction
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Interaction tracked:', data);
+        }
+      } catch (error) {
+        console.error('❌ Failed to track interaction:', error);
+      }
+    }
+
+    // Track restaurant selection
+    function trackRestaurantSelection(restaurant, query, userIntent) {
+      trackInteraction({
+        query,
+        selectedRestaurant: restaurant,
+        userIntent
+      });
+    }
+
+    // Track restaurant rejection
+    function trackRestaurantRejection(restaurant, query, userIntent) {
+      trackInteraction({
+        query,
+        rejectedRestaurants: [restaurant],
+        userIntent
+      });
+    }
+
+    // Get personalized suggestions
+    async function getPersonalizedSuggestions(query = '') {
+      try {
+        const response = await fetch(`/suggestions/${getUserId()}?query=${encodeURIComponent(query)}`);
+        if (response.ok) {
+          const data = await response.json();
+          return data.suggestions || [];
+        }
+      } catch (error) {
+        console.error('❌ Failed to get personalized suggestions:', error);
+      }
+      return [];
+    }
+
+    // Like a restaurant
+    function likeRestaurant(name, location, price, rating) {
+      const restaurant = { name, location, price, rating };
+      const query = document.getElementById('input').value;
+      
+      // Track the interaction
+      trackRestaurantSelection(restaurant, query, {
+        search_term: query,
+        mood: 'casual',
+        price_range: 'moderate'
+      });
+      
+      // Show feedback
+      showFeedback('❤️ Thanks! We\'ll remember you like this type of place!');
+    }
+
+    // Dislike a restaurant
+    function dislikeRestaurant(name, location, price, rating) {
+      const restaurant = { name, location, price, rating };
+      const query = document.getElementById('input').value;
+      
+      // Track the interaction
+      trackRestaurantRejection(restaurant, query, {
+        search_term: query,
+        mood: 'casual',
+        price_range: 'moderate'
+      });
+      
+      // Show feedback
+      showFeedback('👎 Got it! We\'ll avoid similar places in the future.');
+    }
+
+    // Show feedback message
+    function showFeedback(message) {
+      const feedback = document.createElement('div');
+      feedback.className = 'feedback-message';
+      feedback.textContent = message;
+      feedback.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #4CAF50;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        z-index: 1000;
+        animation: slideInRight 0.3s ease-out;
+      `;
+      
+      document.body.appendChild(feedback);
+      
+      setTimeout(() => {
+        feedback.remove();
+      }, 3000);
+    }
     
     // Comprehensive dietary restrictions database
     const dietaryDatabase = {
@@ -481,7 +606,13 @@
     }
 
     async function getRecommendations(searchType = null) {
-      const query = document.getElementById("input").value;
+      const query = document.getElementById("input").value.trim();
+      
+      // Validate input
+      if (!query) {
+        alert('Please enter what you\'re looking for!');
+        return;
+      }
       
       // Show loading screen
       showLoading();
@@ -529,7 +660,11 @@
           query,
           userLocation: userLocation,
           searchType: finalSearchType,
-          priceMode: priceMode === 'off' ? null : priceMode
+          priceMode: priceMode === 'off' ? null : priceMode,
+          userCoordinates: {
+            ...userCoordinates,
+            userId: getUserId()
+          }
         };
 
         console.log("🚀 Sending request to /recommend with body:", requestBody);
@@ -543,27 +678,77 @@
         console.log("📡 Response status:", res.status, res.statusText);
         
         if (!res.ok) {
-          const errorText = await res.text();
-          console.error("❌ Server error response:", errorText);
-          throw new Error("Server returned " + res.status + ": " + errorText);
+          const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+          console.error("❌ Server error response:", errorData);
+          
+          // Handle specific error cases
+          if (res.status === 400) {
+            document.getElementById("output").innerHTML = `
+              <div class="error-message">
+                <h3>Invalid Request</h3>
+                <p>${errorData.error || 'Please check your input and try again.'}</p>
+                ${errorData.suggestions ? `
+                  <div style="margin-top: 1rem;">
+                    <p><strong>Try these instead:</strong></p>
+                    <ul style="text-align: left; display: inline-block;">
+                      ${errorData.suggestions.map(s => `<li>${s}</li>`).join('')}
+                    </ul>
+                  </div>
+                ` : ''}
+              </div>
+            `;
+            return;
+          }
+          
+          throw new Error(`Server returned ${res.status}: ${errorData.error || 'Unknown error'}`);
         }
 
         const data = await res.json();
-        console.log("✅ DEBUG raw response:", data);
-        console.log("✅ DEBUG recommendations length:", data.recommendations ? data.recommendations.length : 'undefined');
-        console.log("✅ DEBUG intent:", data.intent);
+        console.log("✅ Response received:", data);
 
-        // --- Show parsed intent with enhanced display ---
+        // Handle needs clarification
+        if (data.intent && data.intent.needs_clarification) {
+          document.getElementById("output").innerHTML = `
+            <div class="clarification-container">
+              <div class="clarification-header">
+                <div class="clarification-emoji">🤔</div>
+                <h2>I need a bit more info!</h2>
+                <p>Help me understand what you're looking for:</p>
+              </div>
+              <div class="clarification-options">
+                ${data.intent.suggested_alternatives.map(option => `
+                  <button class="clarification-btn" onclick="selectClarification('${option}')">
+                    ${option}
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        // Show parsed intent with enhanced display
         if (data.intent) {
           const priceRange = data.intent.price_range || 'any';
           const dietaryRestrictions = data.intent.dietary_restrictions || [];
           const location = data.intent.location || 'Not specified';
+          const mood = data.intent.mood || 'casual';
+          const confidence = data.intent.confidence || 0.8;
           
           // Create price range display with money bags
           const priceBags = createPriceBags(priceRange);
           
           // Create dietary restrictions display
           const dietaryDisplay = createDietaryDisplay(dietaryRestrictions);
+
+          // Create mood display
+          const moodEmoji = {
+            'casual': '😊',
+            'romantic': '💕',
+            'celebration': '🎉',
+            'comfort': '🤗',
+            'adventure': '🌟'
+          };
 
           document.getElementById("intent-box").innerHTML = `
             <div class="intent">
@@ -579,31 +764,50 @@
                 <span class="intent-label">🥗 Dietary:</span>
                 <span class="intent-value dietary-display">${dietaryDisplay}</span>
               </div>
+              <div class="intent-row">
+                <span class="intent-label">${moodEmoji[mood] || '😊'} Mood:</span>
+                <span class="intent-value">${mood.charAt(0).toUpperCase() + mood.slice(1)}</span>
+              </div>
+              <div class="intent-row">
+                <span class="intent-label">🎯 Confidence:</span>
+                <span class="intent-value">${Math.round(confidence * 100)}%</span>
+              </div>
             </div>
           `;
         }
-
-        console.log("🔍 Checking recommendations:", {
-          hasRecommendations: !!data.recommendations,
-          isArray: Array.isArray(data.recommendations),
-          length: data.recommendations ? data.recommendations.length : 'undefined',
-          recommendations: data.recommendations
-        });
         
+        // Handle no results
         if (!data.recommendations || data.recommendations.length === 0) {
-          console.log("❌ No recommendations found, showing 'No results found'");
-          document.getElementById("output").innerHTML = "<p>No results found</p>";
+          console.log("❌ No recommendations found");
+          document.getElementById("output").innerHTML = `
+            <div class="no-results-container">
+              <div class="no-results-header">
+                <div class="no-results-emoji">🔍</div>
+                <h2>No results found</h2>
+                <p>Try adjusting your search or filters</p>
+              </div>
+              <div class="no-results-suggestions">
+                <button class="suggestion-btn" onclick="broadenSearch()">
+                  <span class="suggestion-icon">🔍</span>
+                  <span class="suggestion-text">Broaden Search</span>
+                </button>
+                <button class="suggestion-btn" onclick="clearFilters()">
+                  <span class="suggestion-icon">🔄</span>
+                  <span class="suggestion-text">Clear Filters</span>
+                </button>
+              </div>
+            </div>
+          `;
           return;
         }
         
         console.log("✅ Recommendations found, proceeding to render");
 
         // Store recommendations for pick for me functionality
-        console.log("About to render results:", data.recommendations);
         currentRecommendations = data.recommendations;
         
         try {
-        renderResults(data.recommendations);
+          renderResults(data.recommendations);
           console.log("Successfully rendered results");
         } catch (renderError) {
           console.error("Error in renderResults:", renderError);
@@ -612,13 +816,6 @@
 
       } catch (err) {
         console.error("Error in getRecommendations:", err);
-        console.error("Error details:", {
-          message: err.message,
-          stack: err.stack,
-          name: err.name,
-          userLocation: userLocation,
-          query: query
-        });
         
         // Check if it's a network error or API failure
         if (!navigator.onLine || err.message.includes('fetch') || err.message.includes('Failed to fetch')) {
@@ -629,6 +826,7 @@
               <h3>Oops! Something went wrong</h3>
               <p>Please try again or check your internet connection.</p>
               <p style="font-size: 0.8rem; color: #666;">Error: ${err.message}</p>
+              <button onclick="getRecommendations()" class="retry-btn">Try Again</button>
             </div>
           `;
         }
@@ -660,7 +858,7 @@
               ${r.user_ratings_total ? `<span class="review-count">(${r.user_ratings_total} reviews)</span>` : ""}
             </div>
           </div>
-          <p>📍 ${r.location || "N/A"}</p>
+          <p>📍 ${r.location || "N/A"} ${r.distance_formatted ? `(${r.distance_formatted} away)` : ''}</p>
           <p>💰 ${r.price || "N/A"}</p>
           
           ${r.reason ? `
@@ -698,8 +896,16 @@
             </details>
           ` : ""}
           
-          <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((r.name || "") + " " + (r.location || ""))}" 
-             target="_blank" class="maps-link">Open in Google Maps ↗</a>
+          <div class="restaurant-actions">
+            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((r.name || "") + " " + (r.location || ""))}" 
+               target="_blank" class="action-btn primary">📍 Open in Maps</a>
+            <button class="action-btn like" onclick="likeRestaurant('${r.name}', '${r.location}', '${r.price}', '${r.rating}')">
+              ❤️ Like
+            </button>
+            <button class="action-btn dislike" onclick="dislikeRestaurant('${r.name}', '${r.location}', '${r.price}', '${r.rating}')">
+              👎 Dislike
+            </button>
+          </div>
         </div>
       `).join("");
 
@@ -724,6 +930,11 @@
       }
       
       console.log(`Filter ${type} toggled:`, activeFilters[type]);
+      
+      // If it's a distance filter and we have a current query, search again
+      if ((type === 'super-nearby' || type === 'imma-walk') && currentQuery) {
+        getRecommendations(currentQuery);
+      }
     }
 
     // Quick search functions (only for surprise-me)
@@ -892,6 +1103,171 @@
       groupVotingData.isActive = false;
     }
 
+    // Show conflict UI (contradictory filters)
+    function showConflictUI(conflicts, suggestions) {
+      const conflictHTML = `
+        <div class="conflict-container">
+          <div class="conflict-header">
+            <div class="conflict-emoji">⚠️</div>
+            <h2 class="conflict-title">Filter Conflict Detected!</h2>
+            <p class="conflict-subtitle">Your filters are contradicting each other</p>
+          </div>
+          
+          <div class="conflict-details">
+            ${conflicts.map(conflict => `
+              <div class="conflict-item">
+                <div class="conflict-message">${conflict.message}</div>
+                <div class="conflict-filters">
+                  Conflicting: ${conflict.conflicting_filters.join(' vs ')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div class="suggestions-section">
+            <h3>💡 Smart Suggestions:</h3>
+            <div class="suggestions-list">
+              ${suggestions.map(suggestion => `
+                <button class="suggestion-btn" onclick="applySuggestion('${suggestion.action}', '${suggestion.new_price_mode || ''}', '${suggestion.new_search_type || ''}', '${suggestion.new_query || ''}')">
+                  <span class="suggestion-icon">✨</span>
+                  <span class="suggestion-text">${suggestion.message}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById("output").innerHTML = conflictHTML;
+      document.getElementById("intent-box").innerHTML = "";
+    }
+    
+    // Show constraint UI (too restrictive filters)
+    function showConstraintUI(constraints, suggestions, metadata) {
+      const constraintHTML = `
+        <div class="constraint-container">
+          <div class="constraint-header">
+            <div class="constraint-emoji">🔍</div>
+            <h2 class="constraint-title">Filters Too Restrictive!</h2>
+            <p class="constraint-subtitle">Found ${metadata.total_found} places, but none match your strict filters</p>
+          </div>
+          
+          <div class="constraint-details">
+            <h3>🚫 What's limiting your results:</h3>
+            ${constraints.map(constraint => `
+              <div class="constraint-item ${constraint.severity}">
+                <div class="constraint-message">${constraint.message}</div>
+                <div class="constraint-impact">${constraint.impact}</div>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div class="suggestions-section">
+            <h3>💡 Try these adjustments:</h3>
+            <div class="suggestions-list">
+              ${suggestions.map(suggestion => `
+                <button class="suggestion-btn" onclick="applySuggestion('${suggestion.action}', '${suggestion.new_price_mode || ''}', '${suggestion.new_search_type || ''}', '${suggestion.new_query || ''}')">
+                  <span class="suggestion-icon">🎯</span>
+                  <span class="suggestion-text">${suggestion.message}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById("output").innerHTML = constraintHTML;
+      document.getElementById("intent-box").innerHTML = "";
+    }
+    
+    // Apply suggestion (adjust filters and re-search)
+    function applySuggestion(action, newPriceMode, newSearchType, newQuery) {
+      console.log("Applying suggestion:", { action, newPriceMode, newSearchType, newQuery });
+      
+      // Update price mode
+      if (newPriceMode && newPriceMode !== '') {
+        priceMode = newPriceMode;
+        updatePriceToggleUI();
+      }
+      
+      // Update search type (toggle filters)
+      if (newSearchType && newSearchType !== '') {
+        // Turn off current filters
+        activeFilters['super-nearby'] = false;
+        activeFilters['imma-walk'] = false;
+        updateFilterUI();
+        
+        // Turn on new filter
+        if (newSearchType === 'super-nearby') {
+          activeFilters['super-nearby'] = true;
+        } else if (newSearchType === 'imma-walk') {
+          activeFilters['imma-walk'] = true;
+        }
+        updateFilterUI();
+      } else if (newSearchType === null) {
+        // Turn off all distance filters
+        activeFilters['super-nearby'] = false;
+        activeFilters['imma-walk'] = false;
+        updateFilterUI();
+      }
+      
+      // Update query if provided
+      if (newQuery && newQuery !== '') {
+        document.getElementById('input').value = newQuery;
+      }
+      
+      // Re-search with new settings
+      getRecommendations();
+    }
+    
+    // Update price toggle UI
+    function updatePriceToggleUI() {
+      const toggle = document.getElementById('price-toggle');
+      const icon = toggle.querySelector('.btn-icon');
+      const text = toggle.querySelector('.btn-text');
+      const subtitle = toggle.querySelector('.btn-subtitle');
+      
+      if (priceMode === 'broke') {
+        icon.textContent = '💰';
+        text.textContent = 'Broke';
+        subtitle.textContent = '1 money bag';
+        toggle.className = 'quick-btn price-toggle broke';
+      } else if (priceMode === 'ballin') {
+        icon.textContent = '💎';
+        text.textContent = 'Ballin';
+        subtitle.textContent = '5 money bags';
+        toggle.className = 'quick-btn price-toggle ballin';
+      } else {
+        icon.textContent = '💰';
+        text.textContent = 'Any Price';
+        subtitle.textContent = 'No filter';
+        toggle.className = 'quick-btn price-toggle off';
+      }
+    }
+    
+    // Update filter UI
+    function updateFilterUI() {
+      // Update super-nearby
+      const superNearbyBtn = document.getElementById('super-nearby-toggle');
+      if (activeFilters['super-nearby']) {
+        superNearbyBtn.classList.remove('off');
+        superNearbyBtn.classList.add('active');
+      } else {
+        superNearbyBtn.classList.remove('active');
+        superNearbyBtn.classList.add('off');
+      }
+      
+      // Update imma-walk
+      const immaWalkBtn = document.getElementById('imma-walk-toggle');
+      if (activeFilters['imma-walk']) {
+        immaWalkBtn.classList.remove('off');
+        immaWalkBtn.classList.add('active');
+      } else {
+        immaWalkBtn.classList.remove('active');
+        immaWalkBtn.classList.add('off');
+      }
+    }
+
     // Show fallback recommendations with special UI
     async function showFallbackRecommendations(reason) {
       hideLoading();
@@ -947,6 +1323,61 @@
           </div>
         `;
       }
+    }
+
+    // Helper functions for new UI elements
+    function selectClarification(option) {
+      document.getElementById('input').value = option;
+      getRecommendations();
+    }
+    
+    function broadenSearch() {
+      // Clear all filters
+      activeFilters['super-nearby'] = false;
+      activeFilters['imma-walk'] = false;
+      priceMode = 'off';
+      updateFilterUI();
+      updatePriceToggleUI();
+      
+      // Get current query and make it more general
+      const currentQuery = document.getElementById('input').value;
+      const broadenedQuery = broadenQuery(currentQuery);
+      document.getElementById('input').value = broadenedQuery;
+      
+      getRecommendations();
+    }
+    
+    function clearFilters() {
+      // Clear all filters
+      activeFilters['super-nearby'] = false;
+      activeFilters['imma-walk'] = false;
+      priceMode = 'off';
+      updateFilterUI();
+      updatePriceToggleUI();
+      
+      getRecommendations();
+    }
+    
+    function broadenQuery(query) {
+      const broadeners = [
+        'restaurant near me',
+        'good food near me',
+        'food near me',
+        'restaurant',
+        'food'
+      ];
+      
+      // If query is very specific, make it more general
+      if (query.length > 20) {
+        return broadeners[0];
+      }
+      
+      // If query doesn't contain location words, add them
+      if (!query.toLowerCase().includes('near') && !query.toLowerCase().includes('around')) {
+        return query + ' near me';
+      }
+      
+      return query;
     }
 
     // Auto-get location on page load

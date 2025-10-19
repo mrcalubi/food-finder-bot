@@ -1,9 +1,28 @@
 {
   "name": "food-finder-api",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "server.js",
+  "description": "AI-powered food recommendation system with enhanced natural language processing",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "dependencies": {
     "node-fetch": "^2.6.7",
     "openai": "^4.104.0",
-    "express": "^4.21.2"
-  }
+    "express": "^4.21.2",
+    "dotenv": "^16.3.1"
+  },
+  "keywords": [
+    "food",
+    "recommendation",
+    "ai",
+    "restaurant",
+    "search",
+    "nlp"
+  ],
+  "author": "Caleb",
+  "license": "MIT"
 }
