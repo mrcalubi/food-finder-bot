@@ -12,7 +12,7 @@
     "test:stress": "node stress-test-suite.js"
   },
   "dependencies": {
-    "node-fetch": "^2.6.7",
+    "node-fetch": "^3.3.2",
     "openai": "^4.104.0",
     "express": "^4.21.2",
     "dotenv": "^16.3.1"
