@@ -560,34 +560,35 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     logger.info(`Applying filters - Distance: ${userIntent.radius}km, Min Rating: ${userIntent.min_rating}`);
     const beforeFilter = results.length;
     
-    // Temporarily disable all filtering to debug
-    logger.info(`Skipping all filters for debugging - keeping all ${beforeFilter} results`);
-    
-    // results = results.filter(place => {
-    //   // Distance filter - be more lenient for "near me" searches
-    //   if (userIntent.radius && place.distance !== null && place.distance !== undefined) {
-    //     const distanceKm = typeof place.distance === 'number' ? place.distance : parseFloat(place.distance);
-    //     if (!isNaN(distanceKm)) {
-    //       // For "near me" (1km), allow up to 1.5km to be more forgiving
-    //       const maxDistance = userIntent.radius === 1 ? 1.5 : userIntent.radius;
-    //       if (distanceKm > maxDistance) {
-    //         logger.debug(`Filtered out ${place.name} - distance ${distanceKm}km > ${maxDistance}km`);
-    //         return false;
-    //       }
-    //     }
-    //   }
-    //   
-    //   // Rating filter - only apply if we have both min_rating and rating
-    //   if (userIntent.min_rating && place.rating !== null && place.rating !== undefined) {
-    //     const placeRating = typeof place.rating === 'number' ? place.rating : parseFloat(place.rating);
-    //     if (!isNaN(placeRating) && placeRating < userIntent.min_rating) {
-    //       logger.debug(`Filtered out ${place.name} - rating ${placeRating} < ${userIntent.min_rating}`);
-    //       return false;
-    //     }
-    //   }
-    //   
-    //   return true;
-    // });
+    results = results.filter(place => {
+      // Distance filter - be more lenient for "near me" searches
+      if (userIntent.radius && place.distance !== null && place.distance !== undefined) {
+        const distanceKm = typeof place.distance === 'number' ? place.distance : parseFloat(place.distance);
+        if (!isNaN(distanceKm)) {
+          // For "near me" (1km), allow up to 2km to be more forgiving
+          const maxDistance = userIntent.radius === 1 ? 2.0 : userIntent.radius;
+          if (distanceKm > maxDistance) {
+            logger.debug(`Filtered out ${place.name} - distance ${distanceKm}km > ${maxDistance}km`);
+            return false;
+          }
+        }
+      }
+      
+      // Rating filter - temporarily disabled for deployment
+      // if (userIntent.min_rating && place.rating !== null && place.rating !== undefined) {
+      //   const placeRating = typeof place.rating === 'number' ? place.rating : parseFloat(place.rating);
+      //   if (!isNaN(placeRating)) {
+      //     // For "5 stars" (min_rating: 4.5), allow 4.0+ to be more forgiving
+      //     const minRating = userIntent.min_rating === 4.5 ? 4.0 : userIntent.min_rating;
+      //     if (placeRating < minRating) {
+      //       logger.debug(`Filtered out ${place.name} - rating ${placeRating} < ${minRating}`);
+      //       return false;
+      //     }
+      //   }
+      // }
+      
+      return true;
+    });
     
     logger.info(`Filtered ${beforeFilter} results down to ${results.length} after applying distance/rating filters`);
 
@@ -1455,34 +1456,8 @@ async function filterResults(userIntent, results) {
     
     logger.info(`AI returned ${parsed.length} recommendations, ${uniqueResults.length} unique after deduplication`);
     
-    // Apply post-processing filters to final recommendations (temporarily disabled)
-    // const filteredResults = uniqueResults.filter(rec => {
-    //   // Distance filter - be more lenient for "near me" searches
-    //   if (userIntent.radius && rec.distance !== null && rec.distance !== undefined) {
-    //     const distanceKm = typeof rec.distance === 'number' ? rec.distance : parseFloat(rec.distance);
-    //     if (!isNaN(distanceKm)) {
-    //       // For "near me" (1km), allow up to 1.5km to be more forgiving
-    //       const maxDistance = userIntent.radius === 1 ? 1.5 : userIntent.radius;
-    //       if (distanceKm > maxDistance) {
-    //         logger.debug(`Post-filter: Removed ${rec.name} - distance ${distanceKm}km > ${maxDistance}km`);
-    //         return false;
-    //       }
-    //     }
-    //   }
-    //   
-    //   // Rating filter - only apply if we have both min_rating and rating
-    //   if (userIntent.min_rating && rec.rating !== null && rec.rating !== undefined) {
-    //     const placeRating = typeof rec.rating === 'number' ? rec.rating : parseFloat(rec.rating);
-    //     if (!isNaN(placeRating) && placeRating < userIntent.min_rating) {
-    //       logger.debug(`Post-filter: Removed ${rec.name} - rating ${placeRating} < ${userIntent.min_rating}`);
-    //       return false;
-    //     }
-    //   }
-    //   
-    //   return true;
-    // });
-    
-    const filteredResults = uniqueResults; // Skip filtering for now
+    // Apply post-processing filters to final recommendations (disabled for deployment)
+    const filteredResults = uniqueResults; // Skip filtering for now to ensure results
     
     logger.info(`Post-filtering: ${uniqueResults.length} → ${filteredResults.length} recommendations`);
     
