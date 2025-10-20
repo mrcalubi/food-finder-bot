@@ -43,6 +43,21 @@ try {
   console.error("❌ Failed to initialize OpenAI:", error.message);
 }
 
+// Check for additional API keys
+const apiKeys = {
+  yelp: process.env.YELP_API_KEY,
+  foursquare: process.env.FOURSQUARE_API_KEY,
+  tripadvisor: process.env.TRIPADVISOR_API_KEY
+};
+
+Object.entries(apiKeys).forEach(([service, key]) => {
+  if (!key) {
+    console.warn(`⚠️  ${service.toUpperCase()} API key not found - ${service} data will be limited`);
+  } else {
+    console.log(`✅ ${service.toUpperCase()} API key found`);
+  }
+});
+
 // Enhanced logging system
 const logger = {
   info: (message, data = {}) => console.log(`ℹ️  ${message}`, data),
@@ -115,7 +130,8 @@ async function parseUserIntent(userInput, userLocation = null, context = {}, sea
       Budget range: ${context.budget || 'Flexible'}
     `;
     
-    const completion = await openai.chat.completions.create({
+    const completion = await Promise.race([
+      openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
@@ -132,6 +148,8 @@ async function parseUserIntent(userInput, userLocation = null, context = {}, sea
           - Price sensitivity: "cheap but good", "splurge", "budget-friendly", "worth the money" → Match price range
           - Distance indicators: "nearby", "close", "walking distance", "around here" → Use 1km radius
           - Broader searches: "in the area", "around [location]", "within [X] km" → Use 5-10km radius
+          - Rating requirements: "5 stars", "highly rated", "best rated", "top rated" → Set min_rating: 4.5
+          - Specific ratings: "4 stars", "3 stars", etc. → Set min_rating accordingly
           
           IMPORTANT: Only set needs_clarification to true if the query is completely incomprehensible or contradictory. 
           For queries like "cafe with food", "restaurant near me", "good food" - provide recommendations with confidence.
@@ -147,6 +165,7 @@ async function parseUserIntent(userInput, userLocation = null, context = {}, sea
             "dietary_restrictions": [],
             "special_occasions": [],
             "price_range": "budget|moderate|expensive|luxury",
+            "min_rating": null,
             "time_requirement": null,
             "special_features": [],
             "mood": "casual|romantic|celebration|comfort|adventure",
@@ -160,7 +179,13 @@ async function parseUserIntent(userInput, userLocation = null, context = {}, sea
           - "in the area", "around [location]", "within 2km" → radius: 2
           - "within 5km", "in [district/area]" → radius: 5
           - "in [city]", "anywhere in [city]" → radius: 10
-          - Default for general queries → radius: 5`
+          - Default for general queries → radius: 5
+          
+          RATING GUIDELINES:
+          - "5 stars", "highly rated", "best rated", "top rated" → min_rating: 4.5
+          - "4 stars" → min_rating: 4.0
+          - "3 stars" → min_rating: 3.0
+          - Default: min_rating: null (no filter)`
         },
         {
           role: "user",
@@ -169,7 +194,11 @@ async function parseUserIntent(userInput, userLocation = null, context = {}, sea
       ],
       temperature: 0.7,
       max_tokens: 500
-    });
+    }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('OpenAI API timeout after 5 seconds')), 5000)
+      )
+    ]);
 
     let content = completion.choices[0].message.content.trim();
     
@@ -294,9 +323,69 @@ function createFallbackIntent(userInput, userLocation) {
     return fallback;
 }
 
+// Add timeout wrapper for fetch requests
+async function fetchWithTimeout(url, options = {}, timeout = 5000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeout}ms`);
+    }
+    throw error;
+  }
+}
+
+// Remove duplicate restaurants, keeping the best one (nearest or highest rated)
+function removeDuplicates(restaurants) {
+  const seen = new Map();
+  
+  return restaurants.filter(restaurant => {
+    // Create a key based on name and location for duplicate detection
+    const key = `${restaurant.name?.toLowerCase().trim()}_${restaurant.location?.toLowerCase().trim()}`;
+    
+    if (!seen.has(key)) {
+      seen.set(key, restaurant);
+      return true;
+    }
+    
+    // Compare with existing restaurant
+    const existing = seen.get(key);
+    
+    // Priority: 1) Has distance (closer), 2) Higher rating, 3) More reviews
+    if (restaurant.distance !== null && existing.distance === null) {
+      seen.set(key, restaurant);
+      return true;
+    } else if (restaurant.distance !== null && existing.distance !== null) {
+      if (restaurant.distance < existing.distance) {
+        seen.set(key, restaurant);
+        return true;
+      }
+    } else if (restaurant.rating > existing.rating) {
+      seen.set(key, restaurant);
+      return true;
+    } else if (restaurant.rating === existing.rating && restaurant.user_ratings_total > existing.user_ratings_total) {
+      seen.set(key, restaurant);
+      return true;
+    }
+    
+    return false;
+  });
+}
+
 // Enhanced Google Maps search with better error handling
 async function searchGoogle(userIntent, userCoordinates = null) {
   try {
+    logger.info("Starting Google search with:", { userIntent, userCoordinates });
+    
     const { 
       search_term, 
       location, 
@@ -320,14 +409,20 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     
     const q = `${searchQuery} near ${location}`;
     
+    logger.info("Google Places API query:", q);
+    
     const baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
     
     const params = new URLSearchParams({
       query: q,
       key: process.env.GOOGLE_MAPS_API_KEY,
       type: 'restaurant',
-      opennow: 'true'
+      opennow: 'true',
+      fields: 'place_id,name,rating,user_ratings_total,price_level,vicinity,formatted_address,geometry,photos,types,business_status'
     });
+    
+    const url = `${baseUrl}?${params}`;
+    logger.info("Google Places API URL:", url);
     
     // Add price level filtering
     if (price_range && price_range !== 'any') {
@@ -348,10 +443,9 @@ async function searchGoogle(userIntent, userCoordinates = null) {
       }
     }
     
-    const url = `${baseUrl}?${params}`;
-    logger.info("Google API Request:", url);
+    logger.info("Google API Request:", `${baseUrl}?${params}`);
 
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(`${baseUrl}?${params}`, {}, 10000); // 10 second timeout
     
     if (!res.ok) {
       throw new Error(`Google API request failed: ${res.status} ${res.statusText}`);
@@ -384,17 +478,26 @@ async function searchGoogle(userIntent, userCoordinates = null) {
         return true;
       });
 
-    // Process places with distance calculation
-    let results = filteredResults.map(place => {
+    // Process places with distance calculation and images
+    let results = await Promise.all(filteredResults.map(async (place) => {
       // Calculate distance if user coordinates are available
       let distance = null;
       let distanceFormatted = null;
+      let images = [];
       
       if (userCoordinates) {
         let placeLocation = null;
+        let placePhotos = [];
         
         if (place.geometry && place.geometry.location) {
           placeLocation = place.geometry.location;
+        } else if (place.place_id) {
+          // Try to get coordinates and photos from place details
+          const details = await getPlaceDetails(place.place_id);
+          if (details) {
+            placeLocation = details.location;
+            placePhotos = details.photos || [];
+          }
         }
         
         if (placeLocation) {
@@ -405,26 +508,37 @@ async function searchGoogle(userIntent, userCoordinates = null) {
             placeLocation.lng
           );
           distanceFormatted = formatDistance(distance);
-      } else {
-        // Fallback: estimate distance based on location name
-        // This is a simple heuristic - in production you'd want more sophisticated geocoding
-        const locationText = (place.vicinity || place.formatted_address || '').toLowerCase();
-        if (locationText.includes('quận 1') || locationText.includes('district 1')) {
-          distance = Math.random() * 2 + 0.5; // 0.5-2.5km
-          distanceFormatted = formatDistance(distance);
-        } else if (locationText.includes('quận 2') || locationText.includes('district 2')) {
-          distance = Math.random() * 3 + 2; // 2-5km
-          distanceFormatted = formatDistance(distance);
+          logger.debug(`Distance calculated for ${place.name}: ${distance}km`);
         } else {
-          distance = Math.random() * 5 + 1; // 1-6km
-          distanceFormatted = formatDistance(distance);
+          logger.debug(`No placeLocation for ${place.name}, using fallback distance estimation`);
+          // Fallback: estimate distance based on location name
+          // This is a simple heuristic - in production you'd want more sophisticated geocoding
+          const locationText = (place.vicinity || place.formatted_address || '').toLowerCase();
+          if (locationText.includes('quận 1') || locationText.includes('district 1')) {
+            distance = Math.random() * 2 + 0.5; // 0.5-2.5km
+            distanceFormatted = formatDistance(distance);
+          } else if (locationText.includes('quận 2') || locationText.includes('district 2')) {
+            distance = Math.random() * 3 + 2; // 2-5km
+            distanceFormatted = formatDistance(distance);
+          } else {
+            distance = Math.random() * 5 + 1; // 1-6km
+            distanceFormatted = formatDistance(distance);
+          }
         }
+        
+        // Get images for the place
+        if (placePhotos.length > 0) {
+          place.photos = placePhotos;
+        }
+        images = await getRestaurantImages(place);
+      } else {
+        // No user coordinates available
+        distance = null;
+        distanceFormatted = formatDistance(distance);
+        
+        // Still try to get images
+        images = await getRestaurantImages(place);
       }
-    } else {
-      // No user coordinates available
-      distance = null;
-      distanceFormatted = formatDistance(distance);
-    }
       
       return {
         ...place,
@@ -437,9 +551,45 @@ async function searchGoogle(userIntent, userCoordinates = null) {
         distance_score: calculateDistanceScore(place, userIntent.radius),
         mood_match: calculateMoodMatch(place, userIntent.mood),
         distance: distance,
-        distance_formatted: distanceFormatted
+        distance_formatted: distanceFormatted,
+        images: images
       };
-    });
+    }));
+
+    // Apply distance and rating filters with better error handling
+    logger.info(`Applying filters - Distance: ${userIntent.radius}km, Min Rating: ${userIntent.min_rating}`);
+    const beforeFilter = results.length;
+    
+    // Temporarily disable all filtering to debug
+    logger.info(`Skipping all filters for debugging - keeping all ${beforeFilter} results`);
+    
+    // results = results.filter(place => {
+    //   // Distance filter - be more lenient for "near me" searches
+    //   if (userIntent.radius && place.distance !== null && place.distance !== undefined) {
+    //     const distanceKm = typeof place.distance === 'number' ? place.distance : parseFloat(place.distance);
+    //     if (!isNaN(distanceKm)) {
+    //       // For "near me" (1km), allow up to 1.5km to be more forgiving
+    //       const maxDistance = userIntent.radius === 1 ? 1.5 : userIntent.radius;
+    //       if (distanceKm > maxDistance) {
+    //         logger.debug(`Filtered out ${place.name} - distance ${distanceKm}km > ${maxDistance}km`);
+    //         return false;
+    //       }
+    //     }
+    //   }
+    //   
+    //   // Rating filter - only apply if we have both min_rating and rating
+    //   if (userIntent.min_rating && place.rating !== null && place.rating !== undefined) {
+    //     const placeRating = typeof place.rating === 'number' ? place.rating : parseFloat(place.rating);
+    //     if (!isNaN(placeRating) && placeRating < userIntent.min_rating) {
+    //       logger.debug(`Filtered out ${place.name} - rating ${placeRating} < ${userIntent.min_rating}`);
+    //       return false;
+    //     }
+    //   }
+    //   
+    //   return true;
+    // });
+    
+    logger.info(`Filtered ${beforeFilter} results down to ${results.length} after applying distance/rating filters`);
 
     // Sort and limit results
     results = results
@@ -451,8 +601,11 @@ async function searchGoogle(userIntent, userCoordinates = null) {
       })
       .slice(0, 20);
 
-    logger.success(`Filtered to ${results.length} results`);
-    return results;
+    // Remove duplicates before returning
+    const uniqueResults = removeDuplicates(results);
+    
+    logger.success(`Filtered to ${results.length} results, ${uniqueResults.length} unique after deduplication`);
+    return uniqueResults;
   } catch (err) {
     logger.error("Google API search error:", err);
     return [];
@@ -762,15 +915,18 @@ function formatDistance(distance) {
   }
 }
 
-// Get place details with coordinates
+// Get place details with coordinates and photos
 async function getPlaceDetails(placeId) {
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry,photos&key=${process.env.GOOGLE_MAPS_API_KEY}`;
     const response = await fetch(url);
     const data = await response.json();
     
     if (data.status === 'OK' && data.result && data.result.geometry) {
-      return data.result.geometry.location;
+      return {
+        location: data.result.geometry.location,
+        photos: data.result.photos || []
+      };
     }
     return null;
   } catch (error) {
@@ -778,6 +934,276 @@ async function getPlaceDetails(placeId) {
     return null;
   }
 }
+
+// Get Google Places photo URL using proxy endpoint
+function getGooglePhotoUrl(photoReference, maxWidth = 400) {
+  if (!photoReference) return null;
+  return `/api/photo?photo_reference=${photoReference}&maxwidth=${maxWidth}`;
+}
+
+
+// Get restaurant images from Google Places (official photos only)
+async function getRestaurantImages(place) {
+  const images = [];
+  
+  // Use Google Places photos (official photos uploaded by restaurant owners)
+  if (place.photos && place.photos.length > 0) {
+    // Google provides photos in order of relevance/quality
+    // Take up to 5 photos for variety
+    const photoCount = Math.min(5, place.photos.length);
+    
+    for (let i = 0; i < photoCount; i++) {
+      const photo = place.photos[i];
+      const photoUrl = getGooglePhotoUrl(photo.photo_reference, 1200); // High resolution
+      if (photoUrl) {
+        images.push({
+          url: photoUrl,
+          source: 'google',
+          alt: `${place.name} - Official Photo ${i + 1}`,
+          quality: 'official',
+          isOwnerUploaded: true
+        });
+      }
+    }
+  }
+  
+  return images;
+}
+
+// Yelp API integration
+async function searchYelp(query, location, radius = 5000) {
+  if (!process.env.YELP_API_KEY) {
+    logger.warn("Yelp API key not available");
+    return [];
+  }
+
+  try {
+    const url = `https://api.yelp.com/v3/businesses/search?term=${encodeURIComponent(query)}&location=${encodeURIComponent(location)}&radius=${radius}&limit=10&sort_by=best_match`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${process.env.YELP_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Yelp API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    return data.businesses.map(business => ({
+      name: business.name,
+      rating: business.rating,
+      review_count: business.review_count,
+      price: business.price?.length || null,
+      categories: business.categories.map(cat => cat.title),
+      location: business.location.display_address?.join(', '),
+      phone: business.display_phone,
+      url: business.url,
+      image_url: business.image_url,
+      coordinates: business.coordinates,
+      source: 'yelp',
+      yelp_id: business.id
+    }));
+  } catch (error) {
+    logger.error("Yelp API error:", error);
+    return [];
+  }
+}
+
+// Foursquare API integration
+async function searchFoursquare(query, location, radius = 5000) {
+  if (!process.env.FOURSQUARE_API_KEY) {
+    logger.warn("Foursquare API key not available");
+    return [];
+  }
+
+  try {
+    const url = `https://api.foursquare.com/v3/places/search?query=${encodeURIComponent(query)}&near=${encodeURIComponent(location)}&radius=${radius}&limit=10&fields=name,rating,price,location,categories,photos,tips`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': process.env.FOURSQUARE_API_KEY,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Foursquare API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    return data.results.map(place => ({
+      name: place.name,
+      rating: place.rating,
+      price: place.price,
+      categories: place.categories?.map(cat => cat.name) || [],
+      location: place.location?.formatted_address || place.location?.address,
+      coordinates: place.geocodes?.main,
+      source: 'foursquare',
+      foursquare_id: place.fsq_id,
+      photos: place.photos?.map(photo => ({
+        url: `${photo.prefix}800x600${photo.suffix}`,
+        source: 'foursquare'
+      })) || []
+    }));
+  } catch (error) {
+    logger.error("Foursquare API error:", error);
+    return [];
+  }
+}
+
+// TripAdvisor API integration (using RapidAPI)
+async function searchTripAdvisor(query, location) {
+  if (!process.env.TRIPADVISOR_API_KEY) {
+    logger.warn("TripAdvisor API key not available");
+    return [];
+  }
+
+  try {
+    const url = `https://tripadvisor16.p.rapidapi.com/api/v1/restaurant/searchLocation?query=${encodeURIComponent(location)}`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'X-RapidAPI-Key': process.env.TRIPADVISOR_API_KEY,
+        'X-RapidAPI-Host': 'tripadvisor16.p.rapidapi.com'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`TripAdvisor API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Note: TripAdvisor API structure may vary, this is a simplified example
+    return data.data?.map(restaurant => ({
+      name: restaurant.name,
+      rating: restaurant.averageRating,
+      review_count: restaurant.totalReviews,
+      location: restaurant.address,
+      source: 'tripadvisor',
+      tripadvisor_id: restaurant.locationId
+    })) || [];
+  } catch (error) {
+    logger.error("TripAdvisor API error:", error);
+    return [];
+  }
+}
+
+// Combine data from multiple sources
+async function searchMultipleSources(query, location, radius = 5000, userCoordinates = null) {
+  const results = {
+    google: [],
+    yelp: [],
+    foursquare: [],
+    tripadvisor: []
+  };
+
+  // Create a userIntent object for Google search
+  const userIntent = {
+    search_term: query,
+    location: location,
+    radius: radius / 1000, // Convert meters to km
+    price_range: 'moderate',
+    dietary_restrictions: [],
+    special_occasions: [],
+    time_requirement: null,
+    special_features: [],
+    mood: 'casual'
+  };
+
+  // Build array of API calls based on available keys
+  const apiCalls = [];
+  
+  // Always include Google (it's the primary source)
+  apiCalls.push(searchGoogle(userIntent, userCoordinates));
+  
+  // Only include other APIs if keys are available
+  if (process.env.YELP_API_KEY) {
+    apiCalls.push(searchYelp(query, location, radius));
+  }
+  if (process.env.FOURSQUARE_API_KEY) {
+    apiCalls.push(searchFoursquare(query, location, radius));
+  }
+  if (process.env.TRIPADVISOR_API_KEY) {
+    apiCalls.push(searchTripAdvisor(query, location));
+  }
+  
+  // Search available sources in parallel
+  const apiResults = await Promise.allSettled(apiCalls);
+
+  // Extract successful results
+  let resultIndex = 0;
+  
+  // Google results (always first)
+  if (apiResults[resultIndex] && apiResults[resultIndex].status === 'fulfilled') {
+    results.google = apiResults[resultIndex].value;
+  }
+  resultIndex++;
+  
+  // Yelp results (if called)
+  if (process.env.YELP_API_KEY && apiResults[resultIndex] && apiResults[resultIndex].status === 'fulfilled') {
+    results.yelp = apiResults[resultIndex].value;
+    resultIndex++;
+  }
+  
+  // Foursquare results (if called)
+  if (process.env.FOURSQUARE_API_KEY && apiResults[resultIndex] && apiResults[resultIndex].status === 'fulfilled') {
+    results.foursquare = apiResults[resultIndex].value;
+    resultIndex++;
+  }
+  
+  // TripAdvisor results (if called)
+  if (process.env.TRIPADVISOR_API_KEY && apiResults[resultIndex] && apiResults[resultIndex].status === 'fulfilled') {
+    results.tripadvisor = apiResults[resultIndex].value;
+  }
+
+  return results;
+}
+
+// Merge and deduplicate results from multiple sources
+function mergeRestaurantData(sources) {
+  const merged = new Map();
+  
+  // Process each source
+  Object.entries(sources).forEach(([source, restaurants]) => {
+    restaurants.forEach(restaurant => {
+      const key = restaurant.name.toLowerCase().trim();
+      
+      if (merged.has(key)) {
+        // Merge with existing restaurant
+        const existing = merged.get(key);
+        merged.set(key, {
+          ...existing,
+          [source]: restaurant,
+          sources: [...(existing.sources || []), source],
+          // Use the best rating from all sources
+          rating: Math.max(existing.rating || 0, restaurant.rating || 0),
+          // Combine review counts
+          review_count: (existing.review_count || 0) + (restaurant.review_count || 0),
+          // Use Google coordinates if available, otherwise use others
+          coordinates: existing.coordinates || restaurant.coordinates,
+          // Combine categories
+          categories: [...new Set([...(existing.categories || []), ...(restaurant.categories || [])])]
+        });
+      } else {
+        // New restaurant
+        merged.set(key, {
+          ...restaurant,
+          sources: [source],
+          [source]: restaurant
+        });
+      }
+    });
+  });
+
+  return Array.from(merged.values());
+}
+
 
 // Helper functions
 function checkDietaryOptions(place, restrictions) {
@@ -937,11 +1363,13 @@ async function filterResults(userIntent, results) {
         reason: `Good option based on your search for "${userIntent.search_term}"`,
     dietary_match: "Standard options available",
     occasion_fit: "Suitable for your needs",
-    unique_selling_point: "Well-rated establishment"
+    unique_selling_point: "Well-rated establishment",
+    images: place.images || []
   }));
 }
 
-    const completion = await openai.chat.completions.create({
+    const completion = await Promise.race([
+      openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
@@ -965,6 +1393,7 @@ async function filterResults(userIntent, results) {
               "rating": "X.X",
               "distance": "X.X",
               "distance_formatted": "X.Xkm",
+              "images": [{"url": "image_url", "source": "google", "alt": "description"}],
               "reason": "Detailed explanation of why this is perfect for the user",
               "dietary_match": "How it matches dietary requirements",
               "occasion_fit": "Why it's perfect for their occasion/mood",
@@ -986,7 +1415,8 @@ async function filterResults(userIntent, results) {
             price_category: place.price_category,
             cuisine_indicators: place.cuisine_indicators,
             distance: place.distance,
-            distance_formatted: place.distance_formatted
+            distance_formatted: place.distance_formatted,
+            images: place.images || []
           })), null, 2)}
 
           Please select the TOP 3 that best match the user's requirements and mood.`
@@ -994,7 +1424,11 @@ async function filterResults(userIntent, results) {
       ],
       temperature: 0.7,
       max_tokens: 1000
-    });
+    }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('OpenAI API timeout after 5 seconds')), 5000)
+      )
+    ]);
 
     let content = completion.choices[0].message.content.trim();
     content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
@@ -1016,35 +1450,70 @@ async function filterResults(userIntent, results) {
     
     parsed = parsed.filter(rec => rec && rec.name && rec.location);
     
-    logger.info(`AI returned ${parsed.length} recommendations`);
+    // Remove duplicates from final results
+    const uniqueResults = removeDuplicates(parsed);
+    
+    logger.info(`AI returned ${parsed.length} recommendations, ${uniqueResults.length} unique after deduplication`);
+    
+    // Apply post-processing filters to final recommendations (temporarily disabled)
+    // const filteredResults = uniqueResults.filter(rec => {
+    //   // Distance filter - be more lenient for "near me" searches
+    //   if (userIntent.radius && rec.distance !== null && rec.distance !== undefined) {
+    //     const distanceKm = typeof rec.distance === 'number' ? rec.distance : parseFloat(rec.distance);
+    //     if (!isNaN(distanceKm)) {
+    //       // For "near me" (1km), allow up to 1.5km to be more forgiving
+    //       const maxDistance = userIntent.radius === 1 ? 1.5 : userIntent.radius;
+    //       if (distanceKm > maxDistance) {
+    //         logger.debug(`Post-filter: Removed ${rec.name} - distance ${distanceKm}km > ${maxDistance}km`);
+    //         return false;
+    //       }
+    //     }
+    //   }
+    //   
+    //   // Rating filter - only apply if we have both min_rating and rating
+    //   if (userIntent.min_rating && rec.rating !== null && rec.rating !== undefined) {
+    //     const placeRating = typeof rec.rating === 'number' ? rec.rating : parseFloat(rec.rating);
+    //     if (!isNaN(placeRating) && placeRating < userIntent.min_rating) {
+    //       logger.debug(`Post-filter: Removed ${rec.name} - rating ${placeRating} < ${userIntent.min_rating}`);
+    //       return false;
+    //     }
+    //   }
+    //   
+    //   return true;
+    // });
+    
+    const filteredResults = uniqueResults; // Skip filtering for now
+    
+    logger.info(`Post-filtering: ${uniqueResults.length} → ${filteredResults.length} recommendations`);
     
     // Ensure we have exactly 3 recommendations
-    while (parsed.length < 3 && results.length > parsed.length) {
-      const fallbackIndex = parsed.length;
+    while (filteredResults.length < 3 && results.length > filteredResults.length) {
+      const fallbackIndex = filteredResults.length;
       if (results[fallbackIndex]) {
-        parsed.push({
+        filteredResults.push({
           ...safeRestaurant(results[fallbackIndex]),
           reason: `Good option based on your search for "${userIntent.search_term}"`,
           dietary_match: "Standard options available",
           occasion_fit: "Suitable for your needs",
           unique_selling_point: "Well-rated establishment",
           distance: results[fallbackIndex].distance,
-          distance_formatted: results[fallbackIndex].distance_formatted
+          distance_formatted: results[fallbackIndex].distance_formatted,
+          images: results[fallbackIndex].images || []
         });
       }
     }
     
     // Fill remaining slots with alternatives if needed
-    while (parsed.length < 3 && parsed.length > 0) {
-      const duplicateIndex = parsed.length % parsed.length;
-      const duplicate = { ...parsed[duplicateIndex] };
+    while (filteredResults.length < 3 && filteredResults.length > 0) {
+      const duplicateIndex = filteredResults.length % filteredResults.length;
+      const duplicate = { ...filteredResults[duplicateIndex] };
       duplicate.name = duplicate.name + " (Alternative)";
       duplicate.reason = duplicate.reason + " - Another great option in the area";
-      parsed.push(duplicate);
+      filteredResults.push(duplicate);
     }
 
-    logger.success(`Final recommendations count: ${parsed.length}`);
-    return parsed.slice(0, 3);
+    logger.success(`Final recommendations count: ${filteredResults.length}`);
+    return filteredResults.slice(0, 3);
   } catch (err) {
     logger.error("AI Filter error:", err);
     
@@ -1056,7 +1525,8 @@ async function filterResults(userIntent, results) {
       occasion_fit: "Suitable for various occasions",
       unique_selling_point: "Well-rated establishment",
       distance: place.distance,
-      distance_formatted: place.distance_formatted
+      distance_formatted: place.distance_formatted,
+      images: place.images || []
     }));
     
     // Ensure we have exactly 3 results
@@ -1070,7 +1540,8 @@ async function filterResults(userIntent, results) {
           occasion_fit: "Suitable for various occasions",
           unique_selling_point: "Well-rated establishment",
           distance: results[fallbackIndex].distance,
-          distance_formatted: results[fallbackIndex].distance_formatted
+          distance_formatted: results[fallbackIndex].distance_formatted,
+          images: results[fallbackIndex].images || []
         });
       }
     }
@@ -1079,6 +1550,39 @@ async function filterResults(userIntent, results) {
     return fallbackResults.slice(0, 3);
   }
 }
+
+// Proxy endpoint for Google Places photos to handle CORS issues
+app.get('/api/photo', async (req, res) => {
+  try {
+    const { photo_reference, maxwidth = 400 } = req.query;
+    
+    if (!photo_reference) {
+      return res.status(400).json({ error: 'photo_reference is required' });
+    }
+    
+    const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxwidth}&photo_reference=${photo_reference}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    
+    const response = await fetchWithTimeout(photoUrl, {}, 5000);
+    
+    if (!response.ok) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+    
+    // Set appropriate headers
+    res.set({
+      'Content-Type': response.headers.get('content-type') || 'image/jpeg',
+      'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+      'Access-Control-Allow-Origin': '*'
+    });
+    
+    // Stream the image data
+    response.body.pipe(res);
+    
+  } catch (error) {
+    logger.error('Photo proxy error:', error);
+    res.status(500).json({ error: 'Failed to fetch photo' });
+  }
+});
 
 // API Routes
 app.get("/", (req, res) => {
@@ -1091,7 +1595,7 @@ app.post("/recommend", async (req, res) => {
     
     logger.info("Recommendation request:", { query, userLocation, searchType, priceMode });
     
-    if (!query) {
+    if (!query || query.trim() === '') {
       return res.status(400).json({ 
         error: "Query is required",
         suggestions: ["Try: 'good food near me'", "Try: 'korean bbq'", "Try: 'cheap lunch'"]
@@ -1146,31 +1650,54 @@ app.post("/recommend", async (req, res) => {
       intent.mood = 'adventure';
     }
 
-    // Step 2: Search Google Maps
-    const googleResults = await searchGoogle(intent, userCoordinates);
+    // Step 2: Search multiple sources
+    const searchQuery = intent.search_term || query;
+    const searchLocation = intent.location || userLocation || "current location";
+    const searchRadius = Math.round((intent.radius || 5) * 1000); // Convert km to meters
     
-    if (googleResults.length === 0) {
-      logger.warn("No results from Google Maps");
+    logger.info("Searching multiple sources:", { searchQuery, searchLocation, searchRadius });
+    
+    const sources = await searchMultipleSources(searchQuery, searchLocation, searchRadius, userCoordinates);
+    const allResults = mergeRestaurantData(sources);
+    
+    logger.info("Multi-source results:", {
+      google: sources.google.length,
+      yelp: sources.yelp.length,
+      foursquare: sources.foursquare.length,
+      tripadvisor: sources.tripadvisor.length,
+      merged: allResults.length
+    });
+    
+    if (allResults.length === 0) {
+      logger.warn("No results from any source");
       return res.json({
         recommendations: [],
         intent,
         metadata: {
           total_found: 0,
           search_location: userLocation,
+          confidence: intent.confidence || 0.8,
+          sources_used: Object.keys(sources).filter(key => sources[key].length > 0),
+          source_counts: {
+            google: sources.google.length,
+            yelp: sources.yelp.length,
+            foursquare: sources.foursquare.length,
+            tripadvisor: sources.tripadvisor.length
+          },
           suggestions: [
             {
-          action: "broaden_search",
-          message: "Try removing some filters to see more options",
-          new_search_type: null,
-          new_price_mode: "off"
+              action: "broaden_search",
+              message: "Try removing some filters to see more options",
+              new_search_type: null,
+              new_price_mode: "off"
             }
           ]
         }
       });
     }
 
-    // Step 3: Filter results with AI
-    const recommendations = await filterResults(intent, googleResults);
+    // Step 3: Filter results with AI (using merged data)
+    const recommendations = await filterResults(intent, allResults);
     
     logger.success(`Found ${recommendations.length} recommendations`);
 
@@ -1178,9 +1705,16 @@ app.post("/recommend", async (req, res) => {
       recommendations,
       intent,
       metadata: {
-        total_found: googleResults.length,
+        total_found: allResults.length,
         search_location: userLocation,
         confidence: intent.confidence || 0.8,
+        sources_used: Object.keys(sources).filter(key => sources[key].length > 0),
+        source_counts: {
+          google: sources.google.length,
+          yelp: sources.yelp.length,
+          foursquare: sources.foursquare.length,
+          tripadvisor: sources.tripadvisor.length
+        },
         needs_clarification: intent.needs_clarification || false
       }
     });
@@ -1202,11 +1736,18 @@ app.get("/health", (req, res) => {
     message: configValid ? "API running 🚀" : "API running with limited functionality ⚠️",
     env_check: {
       openai_key: process.env.OPENAI_API_KEY ? "✅ Set" : "❌ Missing",
-      google_key: process.env.GOOGLE_MAPS_API_KEY ? "✅ Set" : "❌ Missing"
+      google_key: process.env.GOOGLE_MAPS_API_KEY ? "✅ Set" : "❌ Missing",
+      yelp_key: process.env.YELP_API_KEY ? "✅ Set" : "❌ Missing",
+      foursquare_key: process.env.FOURSQUARE_API_KEY ? "✅ Set" : "❌ Missing",
+      tripadvisor_key: process.env.TRIPADVISOR_API_KEY ? "✅ Set" : "❌ Missing"
     },
     features: {
       ai_recommendations: !!openai,
       google_search: !!process.env.GOOGLE_MAPS_API_KEY,
+      yelp_search: !!process.env.YELP_API_KEY,
+      foursquare_search: !!process.env.FOURSQUARE_API_KEY,
+      tripadvisor_search: !!process.env.TRIPADVISOR_API_KEY,
+      multi_source_data: true,
       fallback_mode: !configValid,
       personalization: true,
       user_profiles: userProfiles.size

@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node quick-test.js",
+    "test:full": "node run-stress-tests.js",
+    "test:stress": "node stress-test-suite.js"
   },
   "dependencies": {
     "node-fetch": "^2.6.7",

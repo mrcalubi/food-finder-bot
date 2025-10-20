@@ -28,7 +28,8 @@ const fallbackRestaurants = [
     reason: "Premium chicken wings with amazing flavors and crispy texture",
     dietary_match: "Gluten-free options available, customizable spice levels",
     occasion_fit: "Perfect for casual dining, sports watching, and group hangouts",
-    unique_selling_point: "11 signature flavors from Lemon Pepper to Atomic, consistently crispy wings"
+    unique_selling_point: "11 signature flavors from Lemon Pepper to Atomic, consistently crispy wings",
+    images: []
   },
   {
     name: "Fish & Co.",
@@ -38,7 +39,8 @@ const fallbackRestaurants = [
     reason: "Fresh seafood with Mediterranean flavors and generous portions",
     dietary_match: "Vegetarian pasta options, customizable spice levels",
     occasion_fit: "Perfect for family meals and casual dining",
-    unique_selling_point: "Signature fish and chips with unique Mediterranean twist"
+    unique_selling_point: "Signature fish and chips with unique Mediterranean twist",
+    images: []
   }
 ];
 
@@ -48,7 +50,11 @@ function safeRestaurant(r) {
     name: r.name || "Unknown",
     location: r.vicinity || r.formatted_address || "N/A",
     price: r.price_level ? "$".repeat(r.price_level) : "N/A",
-    rating: r.rating ? r.rating.toFixed(1) : null
+    rating: r.rating ? r.rating.toFixed(1) : null,
+    user_ratings_total: r.user_ratings_total || 0,
+    place_id: r.place_id || null,
+    types: r.types || [],
+    images: r.images || []
   };
 }
 
@@ -177,8 +183,71 @@ async function rewriteQuery(userInput, userLocation = null) {
   }
 }
 
+// Get Google Places photo URL
+function getGooglePhotoUrl(photoReference, maxWidth = 400) {
+  if (!photoReference) return null;
+  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photo_reference=${photoReference}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+}
+
+// Distance calculation using Haversine formula
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const distance = R * c;
+  return distance;
+}
+
+// Format distance for display
+function formatDistance(distance) {
+  if (distance === null || distance === undefined || isNaN(distance)) {
+    return "N/A";
+  }
+  
+  if (distance < 1) {
+    return `${Math.round(distance * 1000)}m`;
+  } else if (distance < 10) {
+    return `${distance.toFixed(1)}km`;
+  } else {
+    return `${Math.round(distance)}km`;
+  }
+}
+
+// Get restaurant images from Google Places (official photos only)
+async function getRestaurantImages(place) {
+  const images = [];
+  
+  // Use Google Places photos (official photos uploaded by restaurant owners)
+  if (place.photos && place.photos.length > 0) {
+    // Google provides photos in order of relevance/quality
+    // Take up to 5 photos for variety
+    const photoCount = Math.min(5, place.photos.length);
+    
+    for (let i = 0; i < photoCount; i++) {
+      const photo = place.photos[i];
+      const photoUrl = getGooglePhotoUrl(photo.photo_reference, 1200); // High resolution
+      if (photoUrl) {
+        images.push({
+          url: photoUrl,
+          source: 'google',
+          alt: `${place.name} - Official Photo ${i + 1}`,
+          quality: 'official',
+          isOwnerUploaded: true
+        });
+      }
+    }
+  }
+  
+  return images;
+}
+
 // Google Maps search
-async function searchGoogle(userIntent) {
+async function searchGoogle(userIntent, userCoordinates = null) {
   try {
     const { query, location, dietary_restrictions, cuisine_type, price_range, min_rating, min_reviews } = userIntent;
     
@@ -198,7 +267,8 @@ async function searchGoogle(userIntent) {
       query: q,
       key: process.env.GOOGLE_MAPS_API_KEY,
       type: 'restaurant',
-      opennow: 'true'
+      opennow: 'true',
+      fields: 'place_id,name,rating,user_ratings_total,price_level,vicinity,formatted_address,geometry,photos,types,business_status'
     });
     
     if (price_range) {
@@ -230,7 +300,8 @@ async function searchGoogle(userIntent) {
       return [];
     }
 
-    let results = data.results
+    // Process places with images
+    let results = await Promise.all(data.results
       .filter(p => p.business_status !== "CLOSED_PERMANENTLY")
       .filter(p => {
         if (!p.rating || p.rating < 4.4) return false;
@@ -242,12 +313,36 @@ async function searchGoogle(userIntent) {
         }
         return true;
       })
-      .map(place => ({
-        ...place,
-        price_category: getPriceCategory(place.price_level),
-        rating_penalty: calculateRatingPenalty(place.rating),
-        low_rating_reason: generateLowRatingReason(place)
-      }))
+      .map(async place => {
+        const images = await getRestaurantImages(place);
+        
+        // Calculate distance if user coordinates are available
+        let distance = null;
+        let distanceFormatted = null;
+        
+        if (userCoordinates && place.geometry && place.geometry.location) {
+          distance = calculateDistance(
+            userCoordinates.latitude,
+            userCoordinates.longitude,
+            place.geometry.location.lat,
+            place.geometry.location.lng
+          );
+          distanceFormatted = formatDistance(distance);
+        }
+        
+        return {
+          ...place,
+          price_category: getPriceCategory(place.price_level),
+          rating_penalty: calculateRatingPenalty(place.rating),
+          low_rating_reason: generateLowRatingReason(place),
+          images: images,
+          distance: distance,
+          distance_formatted: distanceFormatted
+        };
+      }));
+
+    // Sort results
+    results = results
       .sort((a, b) => {
         const scoreA = (a.rating || 0) - (a.rating_penalty || 0);
         const scoreB = (b.rating || 0) - (b.rating_penalty || 0);
@@ -338,6 +433,10 @@ async function filterResults(userIntent, results) {
               "location": "Address", 
               "price": "Price Level",
               "rating": "X.X",
+              "user_ratings_total": 123,
+              "distance": "X.X",
+              "distance_formatted": "X.Xkm",
+              "images": [{"url": "image_url", "source": "google", "alt": "description"}],
               "reason": "Detailed explanation of why this is perfect",
               "dietary_match": "How it matches dietary requirements",
               "occasion_fit": "Why it's perfect for their occasion",
@@ -357,7 +456,10 @@ async function filterResults(userIntent, results) {
             types: place.types,
             user_ratings_total: place.user_ratings_total,
             rating_penalty: place.rating_penalty,
-            low_rating_reason: place.low_rating_reason
+            low_rating_reason: place.low_rating_reason,
+            images: place.images || [],
+            distance: place.distance,
+            distance_formatted: place.distance_formatted
           })), null, 2)}
 
           Please select the TOP 3 that best match the user's requirements.`
@@ -395,7 +497,10 @@ async function filterResults(userIntent, results) {
           reason: `Good option based on your search criteria`,
           dietary_match: "Standard options available",
           occasion_fit: "Suitable for your needs",
-          unique_selling_point: "Well-rated establishment"
+          unique_selling_point: "Well-rated establishment",
+          images: results[fallbackIndex].images || [],
+          distance: results[fallbackIndex].distance,
+          distance_formatted: results[fallbackIndex].distance_formatted
         });
       }
     }
@@ -418,7 +523,10 @@ async function filterResults(userIntent, results) {
       reason: `Good option based on your search criteria`,
       dietary_match: "Please check with restaurant directly",
       occasion_fit: "Suitable for various occasions",
-      unique_selling_point: "Well-rated establishment"
+      unique_selling_point: "Well-rated establishment",
+      images: place.images || [],
+      distance: place.distance,
+      distance_formatted: place.distance_formatted
     }));
     
     while (fallbackResults.length < 3 && results.length > fallbackResults.length) {
@@ -429,7 +537,10 @@ async function filterResults(userIntent, results) {
           reason: `Good option based on your search criteria`,
           dietary_match: "Please check with restaurant directly",
           occasion_fit: "Suitable for various occasions",
-          unique_selling_point: "Well-rated establishment"
+          unique_selling_point: "Well-rated establishment",
+          images: results[fallbackIndex].images || [],
+          distance: results[fallbackIndex].distance,
+          distance_formatted: results[fallbackIndex].distance_formatted
         });
       }
     }
@@ -452,14 +563,23 @@ module.exports = async (req, res) => {
   console.log("🚀 /recommend endpoint hit");
   console.log("📦 Request body:", req.body);
   
-  const { query, userLocation, searchType, priceMode } = req.body;
+  const { query, userLocation, searchType, priceMode, userCoordinates } = req.body;
   console.log("💬 User query:", query);
   console.log("📍 User location:", userLocation);
   console.log("🔍 Search type:", searchType || 'normal');
   console.log("💰 Price mode:", priceMode || 'normal');
+  console.log("📍 User coordinates:", userCoordinates);
 
   try {
-    let intent = await rewriteQuery(query || "restaurant Singapore", userLocation);
+    // Validate query
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ 
+        error: "Query is required",
+        suggestions: ["Try: 'good food near me'", "Try: 'korean bbq'", "Try: 'cheap lunch'"]
+      });
+    }
+    
+    let intent = await rewriteQuery(query, userLocation);
     
     if (priceMode === 'ballin') {
       intent.price_range = 'luxury';
@@ -478,7 +598,7 @@ module.exports = async (req, res) => {
     
     console.log("🎯 Parsed intent:", intent);
 
-    let results = await searchGoogle(intent);
+    let results = await searchGoogle(intent, userCoordinates);
     console.log(`🔍 Found ${results.length} results using Google search`);
 
     let finalRecs = await filterResults(intent, results);

@@ -12,7 +12,7 @@
     <p class="subtitle">Ask me anything about food!</p>
     
     <div class="input-box">
-      <input id="input" placeholder="e.g. nearby cafe with cheap but good food"/>
+      <input id="input" placeholder="e.g. nearby cafe with cheap but good food" onkeypress="handleKeyPress(event)"/>
       <button onclick="getRecommendations()" class="search-button">
         <span class="button-text">Search</span>
         <span class="button-icon">🔍</span>
@@ -229,6 +229,99 @@
         feedback.remove();
       }, 3000);
     }
+
+    // Image modal functionality
+    function openImageModal(imageUrl, imageAlt, photographer, allImages = null) {
+      // Create modal overlay
+      const modal = document.createElement('div');
+      modal.className = 'image-modal-overlay';
+      modal.onclick = closeImageModal;
+      
+      // Create modal content
+      const modalContent = document.createElement('div');
+      modalContent.className = 'image-modal-content';
+      modalContent.onclick = (e) => e.stopPropagation();
+      
+      if (allImages) {
+        // Show all images in a carousel
+        modalContent.innerHTML = `
+          <div class="modal-header">
+            <h3>All Photos</h3>
+            <button class="modal-close" onclick="closeImageModal()">&times;</button>
+          </div>
+          <div class="modal-carousel">
+            <div class="modal-carousel-container">
+              ${allImages.map((img, index) => `
+                <div class="modal-slide ${index === 0 ? 'active' : ''}">
+                  <img src="${img.url}" alt="${img.alt || 'Restaurant photo'}" class="modal-image">
+                  <div class="modal-image-credit">Official Photo</div>
+                </div>
+              `).join('')}
+            </div>
+            <div class="modal-carousel-controls">
+              <button class="modal-prev" onclick="changeModalSlide(-1)">‹</button>
+              <button class="modal-next" onclick="changeModalSlide(1)">›</button>
+            </div>
+            <div class="modal-indicators">
+              ${allImages.map((_, index) => `
+                <span class="modal-indicator ${index === 0 ? 'active' : ''}" onclick="goToModalSlide(${index})"></span>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      } else {
+        // Show single image
+        modalContent.innerHTML = `
+          <div class="modal-header">
+            <h3>${imageAlt}</h3>
+            <button class="modal-close" onclick="closeImageModal()">&times;</button>
+          </div>
+          <div class="modal-image-container">
+            <img src="${imageUrl}" alt="${imageAlt}" class="modal-image">
+            <div class="modal-image-credit">Official Photo</div>
+          </div>
+        `;
+      }
+      
+      modal.appendChild(modalContent);
+      document.body.appendChild(modal);
+      
+      // Prevent body scroll
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeImageModal() {
+      const modal = document.querySelector('.image-modal-overlay');
+      if (modal) {
+        modal.remove();
+        document.body.style.overflow = 'auto';
+      }
+    }
+
+    function changeModalSlide(direction) {
+      const slides = document.querySelectorAll('.modal-slide');
+      const indicators = document.querySelectorAll('.modal-indicator');
+      const currentActive = document.querySelector('.modal-slide.active');
+      const currentIndex = Array.from(slides).indexOf(currentActive);
+      
+      let newIndex = currentIndex + direction;
+      if (newIndex >= slides.length) newIndex = 0;
+      if (newIndex < 0) newIndex = slides.length - 1;
+      
+      goToModalSlide(newIndex);
+    }
+
+    function goToModalSlide(index) {
+      const slides = document.querySelectorAll('.modal-slide');
+      const indicators = document.querySelectorAll('.modal-indicator');
+      
+      slides.forEach(slide => slide.classList.remove('active'));
+      indicators.forEach(indicator => indicator.classList.remove('active'));
+      
+      if (slides[index]) slides[index].classList.add('active');
+      if (indicators[index]) indicators[index].classList.add('active');
+    }
+
     
     // Comprehensive dietary restrictions database
     const dietaryDatabase = {
@@ -772,6 +865,16 @@
                 <span class="intent-label">🎯 Confidence:</span>
                 <span class="intent-value">${Math.round(confidence * 100)}%</span>
               </div>
+              ${data.metadata.sources_used ? `
+                <div class="intent-row">
+                  <span class="intent-label">📊 Data Sources:</span>
+                  <span class="intent-value">${data.metadata.sources_used.map(source => source.charAt(0).toUpperCase() + source.slice(1)).join(', ')}</span>
+                </div>
+                <div class="intent-row">
+                  <span class="intent-label">🔍 Results Found:</span>
+                  <span class="intent-value">${data.metadata.source_counts ? Object.entries(data.metadata.source_counts).map(([source, count]) => `${source.charAt(0).toUpperCase() + source.slice(1)}: ${count}`).join(', ') : 'N/A'}</span>
+                </div>
+              ` : ''}
             </div>
           `;
         }
@@ -858,6 +961,27 @@
               ${r.user_ratings_total ? `<span class="review-count">(${r.user_ratings_total} reviews)</span>` : ""}
             </div>
           </div>
+          ${r.images && r.images.length > 0 ? `
+            <div class="restaurant-images-gallery">
+              <div class="gallery-container">
+                ${r.images.slice(0, 4).map((img, index) => `
+                  <div class="gallery-item ${index === 0 ? 'featured' : ''}" onclick="openImageModal('${img.url}', '${img.alt || r.name}', '')">
+                    <img src="${img.url}" alt="${img.alt || r.name}" class="gallery-image" loading="lazy" 
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="image-placeholder" style="display: none; align-items: center; justify-content: center; background: #f5f5f5; color: #666; font-size: 14px; text-align: center; padding: 20px;">
+                      <div>
+                        <div style="font-size: 24px; margin-bottom: 8px;">📷</div>
+                        <div>${img.alt || r.name}</div>
+                        <div style="font-size: 12px; margin-top: 4px;">Image unavailable</div>
+                      </div>
+                    </div>
+                    <div class="image-credit">Official Photo</div>
+                  </div>
+                `).join('')}
+                ${r.images.length > 4 ? `<div class="more-photos" onclick="openImageModal('', '', '', ${JSON.stringify(r.images).replace(/"/g, '&quot;')})">+${r.images.length - 4} more</div>` : ''}
+              </div>
+            </div>
+          ` : ''}
           <p>📍 ${r.location || "N/A"} ${r.distance_formatted ? `(${r.distance_formatted} away)` : ''}</p>
           <p>💰 ${r.price || "N/A"}</p>
           
@@ -1380,6 +1504,14 @@
       return query;
     }
 
+    // Handle Enter key press
+    function handleKeyPress(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        getRecommendations();
+      }
+    }
+
     // Auto-get location on page load
     window.addEventListener('load', async () => {
       try {
@@ -1393,3 +1525,4 @@
   </script>
 </body>
 </html>
+
