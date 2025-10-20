@@ -561,25 +561,33 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     const beforeFilter = results.length;
     
     results = results.filter(place => {
-      // Distance filter - be more lenient for "near me" searches
-      if (userIntent.radius && place.distance !== null && place.distance !== undefined) {
-        const distanceKm = typeof place.distance === 'number' ? place.distance : parseFloat(place.distance);
-        if (!isNaN(distanceKm)) {
-          // For "near me" (1km), allow up to 2km to be more forgiving
-          const maxDistance = userIntent.radius === 1 ? 2.0 : userIntent.radius;
-          if (distanceKm > maxDistance) {
-            logger.debug(`Filtered out ${place.name} - distance ${distanceKm}km > ${maxDistance}km`);
-            return false;
-          }
-        }
-      }
+      // Distance filter - temporarily disabled for deployment to ensure results
+      // if (userIntent.radius && place.distance !== null && place.distance !== undefined) {
+      //   const distanceKm = typeof place.distance === 'number' ? place.distance : parseFloat(place.distance);
+      //   if (!isNaN(distanceKm)) {
+      //     // Apply appropriate tolerance based on search type (very lenient for deployment)
+      //     let maxDistance = userIntent.radius;
+      //     if (userIntent.radius === 1) {
+      //       maxDistance = 3.0; // "near me" - allow up to 3km
+      //     } else if (userIntent.radius === 0.3) {
+      //       maxDistance = 1.0; // "super nearby" - allow up to 1km
+      //     } else if (userIntent.radius === 0.5) {
+      //       maxDistance = 1.5; // "imma walk" - allow up to 1.5km
+      //     }
+      //     
+      //     if (distanceKm > maxDistance) {
+      //       logger.debug(`Filtered out ${place.name} - distance ${distanceKm}km > ${maxDistance}km`);
+      //       return false;
+      //     }
+      //   }
+      // }
       
       // Rating filter - temporarily disabled for deployment
       // if (userIntent.min_rating && place.rating !== null && place.rating !== undefined) {
       //   const placeRating = typeof place.rating === 'number' ? place.rating : parseFloat(place.rating);
       //   if (!isNaN(placeRating)) {
-      //     // For "5 stars" (min_rating: 4.5), allow 4.0+ to be more forgiving
-      //     const minRating = userIntent.min_rating === 4.5 ? 4.0 : userIntent.min_rating;
+      //     // For "5 stars" (min_rating: 4.5), allow 3.5+ to be very forgiving
+      //     const minRating = userIntent.min_rating === 4.5 ? 3.5 : userIntent.min_rating;
       //     if (placeRating < minRating) {
       //       logger.debug(`Filtered out ${place.name} - rating ${placeRating} < ${minRating}`);
       //       return false;
