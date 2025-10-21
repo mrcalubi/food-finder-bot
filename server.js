@@ -1383,191 +1383,160 @@ function calculateCuisineMatch(place, searchTerm) {
 async function filterResults(userIntent, results) {
   if (!results || results.length === 0) return [];
   
-  try {
-    if (!openai) {
-      logger.warn("OpenAI not available - using basic filtering");
-  return results.slice(0, 3).map(place => ({
-    ...safeRestaurant(place),
-        reason: `Good option based on your search for "${userIntent.search_term}"`,
-    dietary_match: "Standard options available",
-    occasion_fit: "Suitable for your needs",
-    unique_selling_point: "Well-rated establishment",
-    images: place.images || []
-  }));
-}
-
-    const completion = await Promise.race([
-      openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You are an expert food critic and local insider who DEEPLY understands each restaurant's unique character.
-
-          User Context:
-          - Search Intent: ${userIntent.search_term}
-          - Dietary Restrictions: ${userIntent.dietary_restrictions?.join(', ') || 'None specified'}
-          - Special Occasions: ${userIntent.special_occasions?.join(', ') || 'None specified'}
-          - Price Range: ${userIntent.price_range}
-          - Mood: ${userIntent.mood || 'casual'}
-          - Location: ${userIntent.location}
-
-          CRITICAL: Each restaurant's description MUST be UNIQUE and SPECIFIC to that place. NO GENERIC RESPONSES!
-          
-          Guidelines for EACH field:
-          1. "reason": Focus on what makes THIS SPECIFIC restaurant stand out. Mention specific dishes, ambiance, or reputation. Be conversational and enthusiastic. (30-50 words)
-          
-          2. "dietary_match": ONLY include if there ARE specific dietary options. Be SPECIFIC about what they offer (e.g., "Dedicated gluten-free fryer, separate vegan menu with 8 options"). If nothing special, use: "Standard menu - check with staff for dietary needs"
-          
-          3. "occasion_fit": Match to the user's ACTUAL mood/occasion from context. Be specific about WHY it fits (e.g., for romantic: "Intimate lighting and cozy booths, perfect for meaningful conversations"). Make it personal to THIS restaurant.
-          
-          4. "unique_selling_point": What would a LOCAL tell their friend about this place? Mention signature dishes, secret menu items, best time to visit, chef's specialty, awards, or insider tips. Make someone EXCITED to try it. (20-40 words)
-
-          BAD Example (Generic): 
-          "Great food and atmosphere. Good for various occasions. Check dietary options with staff."
-          
-          GOOD Example (Specific):
-          "Their wood-fired pizzas use 48-hour fermented dough - locals swear by the Margherita. Chef Marco trained in Naples and it shows."
-
-          Return ONLY valid JSON array with exactly 3 recommendations:
-          [
-            {
-              "name": "Restaurant Name",
-              "location": "Address", 
-              "price": "Price Level",
-              "rating": "X.X",
-              "distance": "X.X",
-              "distance_formatted": "X.Xkm",
-              "images": [{"url": "image_url", "source": "google", "alt": "description"}],
-              "reason": "SPECIFIC enthusiastic explanation (mention actual dishes/features)",
-              "dietary_match": "SPECIFIC dietary options OR 'Standard menu - check with staff for dietary needs'",
-              "occasion_fit": "WHY it fits this SPECIFIC occasion/mood",
-              "unique_selling_point": "INSIDER INFO that makes this place special"
-            }
-          ]`
-        },
-        {
-          role: "user",
-          content: `Here are ${results.length} restaurant options to analyze:
-
-          ${JSON.stringify(results.map(place => ({
-            name: place.name,
-            location: place.vicinity || place.formatted_address,
-            price: place.price_level ? "$".repeat(place.price_level) : "N/A",
-            rating: place.rating,
-            types: place.types,
-            user_ratings_total: place.user_ratings_total,
-            price_category: place.price_category,
-            cuisine_indicators: place.cuisine_indicators,
-            distance: place.distance,
-            distance_formatted: place.distance_formatted,
-            images: place.images || []
-          })), null, 2)}
-
-          Please select the TOP 3 that best match the user's requirements and mood.`
-        }
-      ],
-      temperature: 0.8,
-      max_tokens: 1500
-    }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('OpenAI API timeout after 5 seconds')), 5000)
-      )
-    ]);
-
-    let content = completion.choices[0].message.content.trim();
-    content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+  logger.info(`🚀 Generating unique descriptions for top 3 results (instant!)`);
+  
+  // AWESOME rule-based descriptions - each restaurant gets unique content based on actual data!
+  return results.slice(0, 3).map((place, idx) => {
+    const rating = parseFloat(place.rating) || 0;
+    const reviews = place.user_ratings_total || 0;
+    const types = place.types || [];
+    const cuisine = userIntent.search_term || "food";
     
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      content = jsonMatch[0];
+    // REASON - Based on rating tiers with SPECIFIC numbers
+    let reason;
+    if (rating >= 4.7 && reviews > 500) {
+      const templates = [
+        `Exceptional ${cuisine} with a stellar ${rating}⭐ rating from ${reviews}+ glowing reviews`,
+        `Top-tier ${cuisine} spot - ${reviews}+ customers rave about it (${rating}⭐)`,
+        `Outstanding quality backed by ${reviews}+ reviews averaging ${rating} stars`
+      ];
+      reason = templates[idx % templates.length];
+    } else if (rating >= 4.5 && reviews > 200) {
+      const templates = [
+        `Highly rated ${cuisine} favorite - ${reviews}+ reviews, ${rating}⭐ average`,
+        `Popular choice for ${cuisine} with ${rating}-star quality (${reviews}+ satisfied diners)`,
+        `Consistently excellent ${cuisine}, proven by ${reviews}+ customers rating it ${rating}⭐`
+      ];
+      reason = templates[idx % templates.length];
+    } else if (rating >= 4.0) {
+      const templates = [
+        `Solid ${cuisine} option with ${rating}⭐ from ${reviews} local diners`,
+        `Quality ${cuisine} spot maintaining ${rating}-star standards`,
+        `Reliable ${cuisine} choice - ${reviews} reviews averaging ${rating}⭐`
+      ];
+      reason = templates[idx % templates.length];
+    } else {
+      reason = `${cuisine} spot with ${rating}⭐ rating based on ${reviews} reviews`;
     }
     
-    let parsed = JSON.parse(content);
-    
-    if (!Array.isArray(parsed)) {
-      if (parsed && typeof parsed === 'object') {
-        parsed = [parsed];
-      } else {
-        throw new Error('Invalid response structure from AI - expected array');
-      }
+    // UNIQUE SELLING POINT - Based on restaurant characteristics  
+    let usp;
+    if (types.includes('bar') || types.includes('night_club')) {
+      const templates = [
+        'Full bar with craft cocktails - dining meets nightlife',
+        'Vibrant bar scene perfect for drinks and socializing',
+        'Great beverage program complements the food menu'
+      ];
+      usp = templates[idx % templates.length];
+    } else if (types.includes('cafe') || types.includes('bakery')) {
+      const templates = [
+        'Cozy café atmosphere with artisanal coffee and fresh pastries',
+        'Perfect morning spot for specialty coffee and baked goods',
+        'Relaxed café vibe ideal for working or unwinding'
+      ];
+      usp = templates[idx % templates.length];
+    } else if (types.includes('meal_delivery') || types.includes('meal_takeaway')) {
+      const templates = [
+        'Convenient takeout and delivery without sacrificing quality',
+        'Popular for both dine-in and grab-and-go',
+        'Fast service perfect for busy schedules'
+      ];
+      usp = templates[idx % templates.length];
+    } else if (types.includes('fine_dining')) {
+      const templates = [
+        'Upscale dining experience with meticulous attention to detail',
+        'Fine dining destination for special occasions',
+        'Premium ingredients and refined culinary techniques'
+      ];
+      usp = templates[idx % templates.length];
+    } else if (rating >= 4.7) {
+      const templates = [
+        'Award-worthy quality that earns its premium ratings',
+        'Local legend known for consistently outstanding dishes',
+        'Top-tier establishment setting the standard for excellence'
+      ];
+      usp = templates[idx % templates.length];
+    } else if (reviews > 500) {
+      const templates = [
+        'Time-tested favorite with hundreds of loyal regulars',
+        'Established reputation built on consistent quality',
+        'Community staple that keeps people coming back'
+      ];
+      usp = templates[idx % templates.length];
+    } else {
+      const templates = [
+        'Authentic flavors served with genuine hospitality',
+        'Quality ingredients prepared with care',
+        'Hidden gem worth discovering'
+      ];
+      usp = templates[idx % templates.length];
     }
     
-    parsed = parsed.filter(rec => rec && rec.name && rec.location);
-    
-    // Remove duplicates from final results
-    const uniqueResults = removeDuplicates(parsed);
-    
-    logger.info(`AI returned ${parsed.length} recommendations, ${uniqueResults.length} unique after deduplication`);
-    
-    // Apply post-processing filters to final recommendations (disabled for deployment)
-    const filteredResults = uniqueResults; // Skip filtering for now to ensure results
-    
-    logger.info(`Post-filtering: ${uniqueResults.length} → ${filteredResults.length} recommendations`);
-    
-    // Ensure we have exactly 3 recommendations
-    while (filteredResults.length < 3 && results.length > filteredResults.length) {
-      const fallbackIndex = filteredResults.length;
-      if (results[fallbackIndex]) {
-        filteredResults.push({
-          ...safeRestaurant(results[fallbackIndex]),
-          reason: `Good option based on your search for "${userIntent.search_term}"`,
-          dietary_match: "Standard options available",
-          occasion_fit: "Suitable for your needs",
-          unique_selling_point: "Well-rated establishment",
-          distance: results[fallbackIndex].distance,
-          distance_formatted: results[fallbackIndex].distance_formatted,
-          images: results[fallbackIndex].images || []
-        });
-      }
+    // OCCASION FIT - Based on user mood and restaurant type
+    let occasion;
+    const mood = userIntent.mood || 'casual';
+    if (mood === 'romantic' || types.includes('fine_dining')) {
+      const templates = [
+        'Intimate ambiance perfect for romantic dates and proposals',
+        'Elegant setting ideal for celebrating special moments together',
+        'Sophisticated atmosphere that sets the mood for romance'
+      ];
+      occasion = templates[idx % templates.length];
+    } else if (mood === 'celebration') {
+      const templates = [
+        'Festive atmosphere great for birthdays and milestones',
+        'Upbeat vibe perfect for group celebrations',
+        'Memorable setting for life\'s special occasions'
+      ];
+      occasion = templates[idx % templates.length];
+    } else if (types.includes('bar') || types.includes('night_club')) {
+      const templates = [
+        'Lively social scene perfect for friends and after-work drinks',
+        'Energetic vibe ideal for group outings',
+        'Fun atmosphere great for mixing food and nightlife'
+      ];
+      occasion = templates[idx % templates.length];
+    } else if (types.includes('cafe') || types.includes('bakery')) {
+      const templates = [
+        'Chill space perfect for solo work sessions or casual meetups',
+        'Comfortable setting for catching up with friends over coffee',
+        'Relaxed environment suitable for any time of day'
+      ];
+      occasion = templates[idx % templates.length];
+    } else {
+      const templates = [
+        'Versatile setting that works for everything from solo meals to group dinners',
+        'Welcoming atmosphere whether you\'re dining alone or with company',
+        'Comfortable space adaptable to any dining occasion'
+      ];
+      occasion = templates[idx % templates.length];
     }
     
-    // Fill remaining slots with alternatives if needed
-    while (filteredResults.length < 3 && filteredResults.length > 0) {
-      const duplicateIndex = filteredResults.length % filteredResults.length;
-      const duplicate = { ...filteredResults[duplicateIndex] };
-      duplicate.name = duplicate.name + " (Alternative)";
-      duplicate.reason = duplicate.reason + " - Another great option in the area";
-      filteredResults.push(duplicate);
+    // DIETARY MATCH - Based on restaurant type
+    let dietary;
+    if (types.includes('vegetarian_restaurant')) {
+      dietary = 'Dedicated vegetarian menu with creative plant-based dishes';
+    } else if (types.includes('vegan_restaurant')) {
+      dietary = '100% vegan menu with diverse options';
+    } else if (types.includes('halal_restaurant')) {
+      dietary = 'Halal-certified with proper preparation standards';
+    } else if (types.includes('gluten_free_restaurant')) {
+      dietary = 'Gluten-free focused with dedicated kitchen practices';
+    } else if (userIntent.dietary_restrictions?.length > 0) {
+      dietary = `Ask staff about ${userIntent.dietary_restrictions.join(', ')} accommodations`;
+    } else {
+      dietary = 'Standard menu - inquire about dietary modifications';
     }
-
-    logger.success(`Final recommendations count: ${filteredResults.length}`);
-    return filteredResults.slice(0, 3);
-  } catch (err) {
-    logger.error("AI Filter error:", err);
     
-    // Enhanced fallback with better error handling
-    let fallbackResults = results.slice(0, 3).map(place => ({
+    return {
       ...safeRestaurant(place),
-      reason: `Good option based on your search for "${userIntent.search_term}"`,
-      dietary_match: "Please check with restaurant directly",
-      occasion_fit: "Suitable for various occasions",
-      unique_selling_point: "Well-rated establishment",
-      distance: place.distance,
-      distance_formatted: place.distance_formatted,
+      reason,
+      unique_selling_point: usp,
+      occasion_fit: occasion,
+      dietary_match: dietary,
       images: place.images || []
-    }));
-    
-    // Ensure we have exactly 3 results
-    while (fallbackResults.length < 3 && results.length > fallbackResults.length) {
-      const fallbackIndex = fallbackResults.length;
-      if (results[fallbackIndex]) {
-        fallbackResults.push({
-          ...safeRestaurant(results[fallbackIndex]),
-          reason: `Good option based on your search for "${userIntent.search_term}"`,
-          dietary_match: "Please check with restaurant directly",
-          occasion_fit: "Suitable for various occasions",
-          unique_selling_point: "Well-rated establishment",
-          distance: results[fallbackIndex].distance,
-          distance_formatted: results[fallbackIndex].distance_formatted,
-          images: results[fallbackIndex].images || []
-        });
-      }
-    }
-    
-    logger.warn(`Fallback recommendations count: ${fallbackResults.length}`);
-    return fallbackResults.slice(0, 3);
-  }
+    };
+  });
 }
 
 // Proxy endpoint for Google Places photos to handle CORS issues
