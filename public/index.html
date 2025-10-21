@@ -66,7 +66,7 @@
       </div>
     </div>
     
-    <div class="group-vote-trigger">
+    <div class="group-vote-trigger" id="group-vote-trigger" style="display: none;">
       <button onclick="openGroupVoting()" class="group-vote-btn">
         <span class="btn-icon">🗳️</span>
         <span class="btn-text">Group Vote</span>
@@ -1033,7 +1033,17 @@
         </div>
       `).join("");
 
-      document.getElementById("output").innerHTML = pickButton + resultsHTML;
+      // Group vote button that appears after results
+      const groupVoteButton = `
+        <div class="group-vote-trigger" id="group-vote-results-trigger">
+          <button onclick="openGroupVoting()" class="group-vote-btn">
+            <span class="btn-icon">🗳️</span>
+            <span class="btn-text">Group Vote</span>
+          </button>
+        </div>
+      `;
+      
+      document.getElementById("output").innerHTML = pickButton + resultsHTML + groupVoteButton;
     }
 
     // Toggle filter function (no animation, just toggle state)
@@ -1142,7 +1152,6 @@
             <p>${option.location}</p>
             <div class="option-rating">${'⭐'.repeat(Math.floor(option.rating))} ${option.rating}/5</div>
           </div>
-          <div class="vote-count" id="votes-${index}">0 votes</div>
         `;
         optionsContainer.appendChild(optionDiv);
       });
@@ -1176,23 +1185,26 @@
     function castVote(optionIndex) {
       if (!groupVotingData.isActive) return;
       
-      const voterId = prompt('Enter your name (anonymous):');
-      if (!voterId) return;
+      // Generate anonymous voter ID
+      const voterId = `voter_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
-      if (groupVotingData.votes[voterId]) {
-        alert('You already voted!');
+      // Check if this device already voted (track by voting count)
+      const currentVoteCount = Object.keys(groupVotingData.votes).length;
+      if (currentVoteCount >= groupVotingData.groupSize) {
+        alert('All votes have been cast!');
         return;
       }
       
       groupVotingData.votes[voterId] = optionIndex;
       
-      // Update vote count display
-      const voteCount = Object.values(groupVotingData.votes).filter(v => v === optionIndex).length;
-      document.getElementById(`votes-${optionIndex}`).textContent = `${voteCount} vote${voteCount !== 1 ? 's' : ''}`;
+      const votedCount = Object.keys(groupVotingData.votes).length;
+      alert(`Vote recorded! (${votedCount}/${groupVotingData.groupSize})`);
       
       // Check if all votes are in
-      if (Object.keys(groupVotingData.votes).length === groupVotingData.groupSize) {
-        alert('All votes are in! Click "Reveal Results" to see the winner!');
+      if (votedCount === groupVotingData.groupSize) {
+        setTimeout(() => {
+          alert('All votes are in! Click "Reveal Results" to see the winner!');
+        }, 300);
       }
     }
 
@@ -1225,6 +1237,11 @@
       }
       
       groupVotingData.isActive = false;
+      
+      // Auto-close the group voting window after showing results
+      setTimeout(() => {
+        closeGroupVoting();
+      }, 500);
     }
 
     // Show conflict UI (contradictory filters)
