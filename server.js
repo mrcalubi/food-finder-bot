@@ -1402,7 +1402,7 @@ async function filterResults(userIntent, results) {
       messages: [
         {
           role: "system",
-          content: `You are an expert food recommendation AI. Analyze restaurant data and provide the TOP 3 BEST recommendations.
+          content: `You are an expert food critic and local insider who DEEPLY understands each restaurant's unique character.
 
           User Context:
           - Search Intent: ${userIntent.search_term}
@@ -1411,6 +1411,23 @@ async function filterResults(userIntent, results) {
           - Price Range: ${userIntent.price_range}
           - Mood: ${userIntent.mood || 'casual'}
           - Location: ${userIntent.location}
+
+          CRITICAL: Each restaurant's description MUST be UNIQUE and SPECIFIC to that place. NO GENERIC RESPONSES!
+          
+          Guidelines for EACH field:
+          1. "reason": Focus on what makes THIS SPECIFIC restaurant stand out. Mention specific dishes, ambiance, or reputation. Be conversational and enthusiastic. (30-50 words)
+          
+          2. "dietary_match": ONLY include if there ARE specific dietary options. Be SPECIFIC about what they offer (e.g., "Dedicated gluten-free fryer, separate vegan menu with 8 options"). If nothing special, use: "Standard menu - check with staff for dietary needs"
+          
+          3. "occasion_fit": Match to the user's ACTUAL mood/occasion from context. Be specific about WHY it fits (e.g., for romantic: "Intimate lighting and cozy booths, perfect for meaningful conversations"). Make it personal to THIS restaurant.
+          
+          4. "unique_selling_point": What would a LOCAL tell their friend about this place? Mention signature dishes, secret menu items, best time to visit, chef's specialty, awards, or insider tips. Make someone EXCITED to try it. (20-40 words)
+
+          BAD Example (Generic): 
+          "Great food and atmosphere. Good for various occasions. Check dietary options with staff."
+          
+          GOOD Example (Specific):
+          "Their wood-fired pizzas use 48-hour fermented dough - locals swear by the Margherita. Chef Marco trained in Naples and it shows."
 
           Return ONLY valid JSON array with exactly 3 recommendations:
           [
@@ -1422,10 +1439,10 @@ async function filterResults(userIntent, results) {
               "distance": "X.X",
               "distance_formatted": "X.Xkm",
               "images": [{"url": "image_url", "source": "google", "alt": "description"}],
-              "reason": "Detailed explanation of why this is perfect for the user",
-              "dietary_match": "How it matches dietary requirements",
-              "occasion_fit": "Why it's perfect for their occasion/mood",
-              "unique_selling_point": "What makes this better than typical search results"
+              "reason": "SPECIFIC enthusiastic explanation (mention actual dishes/features)",
+              "dietary_match": "SPECIFIC dietary options OR 'Standard menu - check with staff for dietary needs'",
+              "occasion_fit": "WHY it fits this SPECIFIC occasion/mood",
+              "unique_selling_point": "INSIDER INFO that makes this place special"
             }
           ]`
         },
@@ -1450,8 +1467,8 @@ async function filterResults(userIntent, results) {
           Please select the TOP 3 that best match the user's requirements and mood.`
         }
       ],
-      temperature: 0.7,
-      max_tokens: 1000
+      temperature: 0.8,
+      max_tokens: 1500
     }),
       new Promise((_, reject) => 
         setTimeout(() => reject(new Error('OpenAI API timeout after 5 seconds')), 5000)

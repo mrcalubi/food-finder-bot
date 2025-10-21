@@ -46,22 +46,52 @@
       </button>
     </div>
     
-    <div class="group-voting" id="group-voting" style="display: none;">
-      <div class="voting-header">
-        <h3>🎉 Group Voting</h3>
-        <button onclick="closeGroupVoting()" class="close-btn">×</button>
-      </div>
-      <div class="voting-content">
-        <div class="group-size">
-          <label>How many people in your group?</label>
-          <input type="number" id="group-size" min="2" max="20" value="4">
+    <!-- Modern Group Voting Modal -->
+    <div class="group-voting-overlay" id="group-voting" style="display: none;" onclick="closeGroupVotingIfOverlay(event)">
+      <div class="group-voting-modal">
+        <div class="voting-header">
+          <h3>🗳️ Group Voting</h3>
+          <button onclick="closeGroupVoting()" class="close-btn">×</button>
         </div>
-        <div class="voting-options" id="voting-options">
-          <!-- Voting options will be populated here -->
+        
+        <!-- Step 1: Group Size -->
+        <div class="voting-step" id="voting-step-1">
+          <div class="voting-content">
+            <div class="group-size-selector">
+              <label>How many people are voting?</label>
+              <div class="number-input-container">
+                <button onclick="decreaseGroupSize()" class="number-btn">−</button>
+                <input type="number" id="group-size" min="2" max="20" value="4" readonly>
+                <button onclick="increaseGroupSize()" class="number-btn">+</button>
+              </div>
+            </div>
+            <button onclick="startVoting()" class="modern-btn primary">Start Voting</button>
+          </div>
         </div>
-        <div class="voting-actions">
-          <button onclick="startVoting()" class="start-voting-btn">Start Voting</button>
-          <button onclick="revealResults()" class="reveal-btn" style="display: none;">Reveal Results</button>
+        
+        <!-- Step 2: Voting -->
+        <div class="voting-step" id="voting-step-2" style="display: none;">
+          <div class="voting-progress">
+            <div class="progress-text">
+              <span id="votes-count">0</span> / <span id="votes-total">4</span> votes
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="voting-options" id="voting-options">
+            <!-- Voting options will be populated here -->
+          </div>
+          <button onclick="revealResults()" class="modern-btn secondary reveal-btn" id="reveal-btn" style="display: none;">
+            🎉 Reveal Winner
+          </button>
+        </div>
+        
+        <!-- Step 3: Results -->
+        <div class="voting-step" id="voting-step-3" style="display: none;">
+          <div class="winner-announcement" id="winner-announcement">
+            <!-- Winner will be shown here -->
+          </div>
         </div>
       </div>
     </div>
@@ -1124,11 +1154,14 @@
     // Group voting functions
     function openGroupVoting() {
       if (currentRecommendations.length === 0) {
-        alert('Please get some recommendations first!');
+        showToast('Please get some recommendations first!', 'warning');
         return;
       }
       
-      document.getElementById('group-voting').style.display = 'block';
+      document.getElementById('group-voting').style.display = 'flex';
+      document.getElementById('voting-step-1').style.display = 'block';
+      document.getElementById('voting-step-2').style.display = 'none';
+      document.getElementById('voting-step-3').style.display = 'none';
       groupVotingData.options = currentRecommendations;
       setupVotingOptions();
     }
@@ -1137,6 +1170,35 @@
       document.getElementById('group-voting').style.display = 'none';
       groupVotingData.isActive = false;
       groupVotingData.votes = {};
+    }
+    
+    function closeGroupVotingIfOverlay(event) {
+      if (event.target.classList.contains('group-voting-overlay')) {
+        closeGroupVoting();
+      }
+    }
+    
+    function increaseGroupSize() {
+      const input = document.getElementById('group-size');
+      if (input.value < 20) input.value = parseInt(input.value) + 1;
+    }
+    
+    function decreaseGroupSize() {
+      const input = document.getElementById('group-size');
+      if (input.value > 2) input.value = parseInt(input.value) - 1;
+    }
+    
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => toast.classList.add('show'), 10);
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
     }
 
     function setupVotingOptions() {
@@ -1160,7 +1222,7 @@
     function startVoting() {
       const groupSize = parseInt(document.getElementById('group-size').value);
       if (groupSize < 2) {
-        alert('Group size must be at least 2!');
+        showToast('Group size must be at least 2!', 'warning');
         return;
       }
       
@@ -1168,9 +1230,11 @@
       groupVotingData.isActive = true;
       groupVotingData.votes = {};
       
-      // Show voting interface
-      document.querySelector('.start-voting-btn').style.display = 'none';
-      document.querySelector('.reveal-btn').style.display = 'inline-block';
+      // Switch to voting step
+      document.getElementById('voting-step-1').style.display = 'none';
+      document.getElementById('voting-step-2').style.display = 'block';
+      document.getElementById('votes-total').textContent = groupSize;
+      document.getElementById('votes-count').textContent = '0';
       
       // Add click handlers to options
       const options = document.querySelectorAll('.voting-option');
@@ -1179,7 +1243,7 @@
         option.style.cursor = 'pointer';
       });
       
-      alert(`Voting started! Pass the phone around for ${groupSize} people to vote. Each person can vote once.`);
+      showToast(`Pass the phone around for ${groupSize} people to vote!`, 'info');
     }
 
     function castVote(optionIndex) {
@@ -1191,20 +1255,30 @@
       // Check if this device already voted (track by voting count)
       const currentVoteCount = Object.keys(groupVotingData.votes).length;
       if (currentVoteCount >= groupVotingData.groupSize) {
-        alert('All votes have been cast!');
+        showToast('All votes have been cast!', 'warning');
         return;
       }
       
       groupVotingData.votes[voterId] = optionIndex;
       
       const votedCount = Object.keys(groupVotingData.votes).length;
-      alert(`Vote recorded! (${votedCount}/${groupVotingData.groupSize})`);
+      
+      // Update progress bar
+      document.getElementById('votes-count').textContent = votedCount;
+      const percentage = (votedCount / groupVotingData.groupSize) * 100;
+      document.getElementById('progress-fill').style.width = percentage + '%';
+      
+      // Add visual feedback to voted option
+      const options = document.querySelectorAll('.voting-option');
+      options[optionIndex].classList.add('voted');
+      setTimeout(() => options[optionIndex].classList.remove('voted'), 500);
+      
+      showToast(`Vote recorded! (${votedCount}/${groupVotingData.groupSize})`, 'success');
       
       // Check if all votes are in
       if (votedCount === groupVotingData.groupSize) {
-        setTimeout(() => {
-          alert('All votes are in! Click "Reveal Results" to see the winner!');
-        }, 300);
+        document.getElementById('reveal-btn').style.display = 'block';
+        showToast('All votes are in! Ready to reveal the winner!', 'success');
       }
     }
 
@@ -1225,23 +1299,51 @@
       const winner = currentRecommendations[winnerIndex];
       const winnerVotes = voteCounts[winnerIndex];
       
-      // Show results
-      alert(`🎉 Winner: ${winner.name}!\n\nVotes: ${winnerVotes}/${groupVotingData.groupSize}\n\nLocation: ${winner.location}\nRating: ${winner.rating}/5`);
+      // Show winner in modal
+      document.getElementById('voting-step-2').style.display = 'none';
+      document.getElementById('voting-step-3').style.display = 'block';
+      
+      const winnerHTML = `
+        <div class="confetti">🎉</div>
+        <h2 class="winner-title">We have a winner!</h2>
+        <div class="winner-card">
+          <div class="winner-icon">🏆</div>
+          <h3>${winner.name}</h3>
+          <div class="winner-stats">
+            <div class="stat">
+              <span class="stat-label">Votes</span>
+              <span class="stat-value">${winnerVotes}/${groupVotingData.groupSize}</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Rating</span>
+              <span class="stat-value">⭐ ${winner.rating}/5</span>
+            </div>
+          </div>
+          <p class="winner-location">📍 ${winner.location}</p>
+          <p class="winner-price">💰 ${winner.price || 'N/A'}</p>
+        </div>
+        <button onclick="closeGroupVoting()" class="modern-btn primary">View on Map</button>
+      `;
+      
+      document.getElementById('winner-announcement').innerHTML = winnerHTML;
       
       // Highlight winner in main results
       const cards = document.querySelectorAll('.card');
       cards.forEach(card => card.classList.remove('group-winner'));
       if (cards[winnerIndex]) {
         cards[winnerIndex].classList.add('group-winner');
-        cards[winnerIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
       
       groupVotingData.isActive = false;
       
-      // Auto-close the group voting window after showing results
+      // Auto-close and scroll to winner after delay
       setTimeout(() => {
         closeGroupVoting();
-      }, 500);
+        const cards = document.querySelectorAll('.card');
+        if (cards[winnerIndex]) {
+          cards[winnerIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 5000);
     }
 
     // Show conflict UI (contradictory filters)
