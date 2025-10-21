@@ -67,6 +67,10 @@ const logger = {
   debug: (message, data = {}) => console.log(`🐛 ${message}`, data)
 };
 
+// AI Description Cache (in-memory for now)
+const aiDescriptionCache = new Map();
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
 // Enhanced fallback restaurants with more variety
 const fallbackRestaurants = [
   {
@@ -150,7 +154,7 @@ async function parseUserIntent(userInput, userLocation = null, context = {}, sea
           - Spanish: paella, tapas, churros, tortilla
           - German: schnitzel, bratwurst, spätzle
           - And ANY other language or transliteration!
-          
+
           CRITICAL: Handle these human variations with intelligence and provide recommendations when possible:
           - Vague queries: "I'm hungry", "something good", "surprise me", "I don't know what I want" → Provide general food recommendations
           - Emotional states: "I'm sad and need comfort food", "celebrating something", "stressed and need something quick" → Match mood to food type
@@ -1379,14 +1383,111 @@ function calculateCuisineMatch(place, searchTerm) {
   return 0.5;
 }
 
+// Background AI enhancement (non-blocking)
+async function enhanceWithAI(restaurants, userIntent) {
+  if (!openai || restaurants.length === 0) return;
+  
+  try {
+    logger.info(`🤖 Starting background AI enhancement for ${restaurants.length} restaurants`);
+    
+    const prompt = `You are a food critic. For each restaurant, write UNIQUE, SPECIFIC descriptions.
+
+User wants: ${userIntent.search_term} in ${userIntent.location}
+
+Restaurants:
+${JSON.stringify(restaurants.map(r => ({
+  name: r.name,
+  rating: r.rating,
+  reviews: r.user_ratings_total,
+  types: r.types
+})))}
+
+Return JSON array with creative descriptions for each. Make them DIFFERENT from each other:
+[{
+  "name": "exact name",
+  "reason": "enthusiastic specific reason (30-40 words)",
+  "unique_selling_point": "what makes it special (20-30 words)",
+  "occasion_fit": "why it fits the occasion (20-30 words)",
+  "dietary_match": "dietary info or 'Standard menu'"
+}]`;
+
+    const completion = await Promise.race([
+      openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          { role: "system", content: "You write unique restaurant descriptions." },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.9,
+        max_tokens: 800
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('AI timeout')), 8000)
+      )
+    ]);
+
+    let content = completion.choices[0].message.content.trim();
+    content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) content = jsonMatch[0];
+    
+    const aiDescriptions = JSON.parse(content);
+    
+    // Cache AI descriptions by restaurant name
+    aiDescriptions.forEach(desc => {
+      const cacheKey = `${desc.name}_${userIntent.search_term}`.toLowerCase();
+      aiDescriptionCache.set(cacheKey, {
+        ...desc,
+        timestamp: Date.now()
+      });
+    });
+    
+    logger.success(`✨ AI enhanced ${aiDescriptions.length} descriptions and cached them!`);
+  } catch (error) {
+    logger.warn(`AI enhancement failed (non-critical): ${error.message}`);
+  }
+}
+
+// Get cached AI description if available
+function getCachedAIDescription(restaurantName, searchTerm) {
+  const cacheKey = `${restaurantName}_${searchTerm}`.toLowerCase();
+  const cached = aiDescriptionCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+    return cached;
+  }
+  
+  // Clean up expired cache
+  if (cached) aiDescriptionCache.delete(cacheKey);
+  return null;
+}
+
 // Enhanced AI filtering with better error handling
 async function filterResults(userIntent, results) {
   if (!results || results.length === 0) return [];
   
   logger.info(`🚀 Generating unique descriptions for top 3 results (instant!)`);
   
-  // AWESOME rule-based descriptions - each restaurant gets unique content based on actual data!
-  return results.slice(0, 3).map((place, idx) => {
+  // Check cache first for AI-enhanced descriptions
+  const top3 = results.slice(0, 3);
+  const finalResults = top3.map((place, idx) => {
+    // Try to get cached AI description first
+    const cachedAI = getCachedAIDescription(place.name, userIntent.search_term);
+    
+    if (cachedAI) {
+      logger.debug(`💎 Using cached AI description for ${place.name}`);
+      return {
+        ...safeRestaurant(place),
+        reason: cachedAI.reason,
+        unique_selling_point: cachedAI.unique_selling_point,
+        occasion_fit: cachedAI.occasion_fit,
+        dietary_match: cachedAI.dietary_match,
+        images: place.images || [],
+        ai_enhanced: true
+      };
+    }
+    
+    // Fall back to rule-based (instant)
     const rating = parseFloat(place.rating) || 0;
     const reviews = place.user_ratings_total || 0;
     const types = place.types || [];
@@ -1534,9 +1635,22 @@ async function filterResults(userIntent, results) {
       unique_selling_point: usp,
       occasion_fit: occasion,
       dietary_match: dietary,
-      images: place.images || []
+      images: place.images || [],
+      ai_enhanced: false
     };
   });
+  
+  // Trigger background AI enhancement (non-blocking)
+  // This will cache results for next time
+  const needsEnhancement = finalResults.filter(r => !r.ai_enhanced);
+  if (needsEnhancement.length > 0) {
+    logger.info(`🚀 Triggering background AI for ${needsEnhancement.length} restaurants`);
+    enhanceWithAI(needsEnhancement, userIntent).catch(err => {
+      logger.warn(`Background AI failed: ${err.message}`);
+    });
+  }
+  
+  return finalResults;
 }
 
 // Proxy endpoint for Google Places photos to handle CORS issues
