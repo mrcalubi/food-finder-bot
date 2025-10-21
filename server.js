@@ -63,7 +63,8 @@ const logger = {
   info: (message, data = {}) => console.log(`ℹ️  ${message}`, data),
   error: (message, error = {}) => console.error(`❌ ${message}`, error),
   warn: (message, data = {}) => console.warn(`⚠️  ${message}`, data),
-  success: (message, data = {}) => console.log(`✅ ${message}`, data)
+  success: (message, data = {}) => console.log(`✅ ${message}`, data),
+  debug: (message, data = {}) => console.log(`🐛 ${message}`, data)
 };
 
 // Enhanced fallback restaurants with more variety
@@ -417,7 +418,7 @@ async function searchGoogle(userIntent, userCoordinates = null) {
       query: q,
       key: process.env.GOOGLE_MAPS_API_KEY,
       type: 'restaurant',
-      opennow: 'true',
+      // Removed opennow: 'true' to show all restaurants, not just currently open ones
       fields: 'place_id,name,rating,user_ratings_total,price_level,vicinity,formatted_address,geometry,photos,types,business_status'
     });
     
@@ -473,8 +474,8 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     let filteredResults = data.results
       .filter(p => p.business_status !== "CLOSED_PERMANENTLY")
       .filter(p => {
-        // More flexible rating filter
-        if (!p.rating || p.rating < 3.5) return false;
+        // More flexible rating filter - only filter out very low rated places
+        if (p.rating && p.rating < 2.5) return false;
         return true;
       });
 
@@ -1149,8 +1150,14 @@ async function searchMultipleSources(query, location, radius = 5000, userCoordin
   let resultIndex = 0;
   
   // Google results (always first)
-  if (apiResults[resultIndex] && apiResults[resultIndex].status === 'fulfilled') {
-    results.google = apiResults[resultIndex].value;
+  if (apiResults[resultIndex]) {
+    console.log('Google API result status:', apiResults[resultIndex].status);
+    if (apiResults[resultIndex].status === 'fulfilled') {
+      results.google = apiResults[resultIndex].value;
+      console.log('Google results count:', results.google.length);
+    } else if (apiResults[resultIndex].status === 'rejected') {
+      console.log('Google API rejected:', apiResults[resultIndex].reason);
+    }
   }
   resultIndex++;
   
