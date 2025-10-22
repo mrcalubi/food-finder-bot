@@ -432,11 +432,20 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     
     const params = new URLSearchParams({
       query: q,
-      key: process.env.GOOGLE_MAPS_API_KEY,
-      type: 'restaurant',
-      // Removed opennow: 'true' to show all restaurants, not just currently open ones
-      fields: 'place_id,name,rating,user_ratings_total,price_level,vicinity,formatted_address,geometry,photos,types,business_status'
+      key: process.env.GOOGLE_MAPS_API_KEY
+      // REMOVED type: 'restaurant' - too restrictive, excludes cafes, bars, bakeries, etc.
+      // REMOVED fields parameter - doesn't work with textsearch, only with place details
+      // Text Search API returns geometry by default
     });
+    
+    // Add location bias if user coordinates are provided
+    if (userCoordinates && userCoordinates.latitude && userCoordinates.longitude) {
+      params.append('location', `${userCoordinates.latitude},${userCoordinates.longitude}`);
+      // Use a wider radius to get more results (convert km to meters)
+      const radiusInMeters = Math.min(radius * 1000 * 2, 50000); // 2x radius, max 50km
+      params.append('radius', radiusInMeters);
+      logger.info(`Location bias: ${userCoordinates.latitude},${userCoordinates.longitude}, radius: ${radiusInMeters}m`);
+    }
     
     const url = `${baseUrl}?${params}`;
     logger.info("Google Places API URL:", url);
