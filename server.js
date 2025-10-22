@@ -1693,7 +1693,7 @@ app.get("/", (req, res) => {
 
 app.post("/recommend", async (req, res) => {
   try {
-    const { query, userLocation, searchType, priceMode, userCoordinates } = req.body;
+    const { query, userLocation, searchType, priceMode, userCoordinates, randomSeed, refreshCount = 0, avoidPlaceIds = [] } = req.body;
     
     logger.info("Recommendation request:", { query, userLocation, searchType, priceMode });
     
@@ -1752,6 +1752,13 @@ app.post("/recommend", async (req, res) => {
       intent.mood = 'adventure';
     }
 
+    // Gradually broaden search on refresh to increase variety (small steps)
+    if (refreshCount > 0) {
+      const baseRadius = intent.radius || 5;
+      const extra = Math.min(refreshCount * 0.5, 3); // up to +3km
+      intent.radius = Math.min(baseRadius + extra, 10);
+    }
+
     // Step 2: Search multiple sources
     const searchQuery = intent.search_term || query;
     const searchLocation = intent.location || userLocation || "current location";
@@ -1760,7 +1767,36 @@ app.post("/recommend", async (req, res) => {
     logger.info("Searching multiple sources:", { searchQuery, searchLocation, searchRadius });
     
     const sources = await searchMultipleSources(searchQuery, searchLocation, searchRadius, userCoordinates);
-    const allResults = mergeRestaurantData(sources);
+    let allResults = mergeRestaurantData(sources);
+
+    // Exclude previously shown results if provided
+    if (Array.isArray(avoidPlaceIds) && avoidPlaceIds.length > 0) {
+      allResults = allResults.filter(r => !avoidPlaceIds.includes(r.place_id));
+    }
+
+    // Score and add small seeded randomness for variety
+    const seedStr = String(randomSeed || Date.now());
+    function hashToUnit(str) {
+      let h = 2166136261;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+      }
+      // Convert to [0,1)
+      return ((h >>> 0) % 100000) / 100000;
+    }
+    const noiseWeightBase = 0.08;
+    const noiseBoost = searchType === 'surprise-me' ? 0.12 : 0;
+    const refreshBoost = Math.min(refreshCount * 0.02, 0.08);
+    const noiseWeight = noiseWeightBase + noiseBoost + refreshBoost;
+
+    allResults = allResults.map(r => {
+      const rating = parseFloat(r.rating || 0);
+      const reviews = r.user_ratings_total || r.review_count || 0;
+      const baseScore = rating * Math.log(reviews + 1);
+      const noise = (hashToUnit((r.name || '') + seedStr) - 0.5) * noiseWeight;
+      return { ...r, _score: baseScore + noise };
+    }).sort((a, b) => b._score - a._score);
     
     logger.info("Multi-source results:", {
       google: sources.google.length,

@@ -736,6 +736,7 @@
       }
     }
 
+    let refreshCount = 0;
     async function getRecommendations(searchType = null) {
       const query = document.getElementById("input").value.trim();
       
@@ -805,7 +806,11 @@
           userCoordinates: {
             ...userCoordinates,
             userId: getUserId()
-          }
+          },
+          // Variety controls
+          randomSeed: Date.now() ^ Math.floor(Math.random() * 1e9),
+          refreshCount: refreshCount || 0,
+          avoidPlaceIds: (currentRecommendations || []).map(r => r.place_id).filter(Boolean)
         };
 
         console.log("🚀 Sending request to /recommend with body:", requestBody);
@@ -1082,6 +1087,15 @@
       `).join("");
 
       // Group vote button that appears after results
+      const refreshButton = `
+        <div class="group-vote-trigger" id="refresh-results-trigger">
+          <button onclick="refreshResults()" class="group-vote-btn">
+            <span class="btn-icon">🔄</span>
+            <span class="btn-text">Refresh Results</span>
+          </button>
+        </div>
+      `;
+
       const groupVoteButton = `
         <div class="group-vote-trigger" id="group-vote-results-trigger">
           <button onclick="openGroupVoting()" class="group-vote-btn">
@@ -1091,7 +1105,17 @@
         </div>
       `;
       
-      document.getElementById("output").innerHTML = pickButton + resultsHTML + groupVoteButton;
+      document.getElementById("output").innerHTML = pickButton + refreshButton + resultsHTML + groupVoteButton;
+    }
+
+    // Refresh results to increase variety and avoid repeats
+    async function refreshResults() {
+      // Increment refresh counter to gradually broaden search on backend
+      refreshCount = (refreshCount || 0) + 1;
+      showLoading();
+      const cookingText = document.getElementById('cooking-text');
+      if (cookingText) cookingText.textContent = 'Refreshing with new variety...';
+      await getRecommendations();
     }
 
     // Toggle filter function (no animation, just toggle state)
@@ -1160,8 +1184,12 @@
         return;
       }
 
-      // Set the input value
-      document.getElementById('input').value = 'restaurant near me';
+      // If input is empty, default to a broad query; otherwise keep user's term
+      const inputEl = document.getElementById('input');
+      const currentVal = inputEl.value.trim();
+      if (!currentVal) {
+        inputEl.value = 'restaurant near me';
+      }
       
       // Show loading with custom message
       showLoading();
