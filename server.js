@@ -114,7 +114,12 @@ function safeRestaurant(r) {
     rating: r.rating ? parseFloat(r.rating).toFixed(1) : null,
     user_ratings_total: r.user_ratings_total || 0,
     place_id: r.place_id || null,
-    types: r.types || []
+    types: r.types || [],
+    // CRITICAL: Preserve distance fields from processed results
+    distance: r.distance !== undefined ? r.distance : null,
+    distance_formatted: r.distance_formatted || null,
+    // Preserve other enhanced metadata
+    images: r.images || []
   };
 }
 
