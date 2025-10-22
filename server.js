@@ -1785,16 +1785,17 @@ app.post("/recommend", async (req, res) => {
       // Convert to [0,1)
       return ((h >>> 0) % 100000) / 100000;
     }
-    const noiseWeightBase = 0.08;
-    const noiseBoost = searchType === 'surprise-me' ? 0.12 : 0;
-    const refreshBoost = Math.min(refreshCount * 0.02, 0.08);
+    const noiseWeightBase = 0.6; // Increased from 0.08 for more variety
+    const noiseBoost = searchType === 'surprise-me' ? 1.2 : 0; // Much stronger for surprise
+    const refreshBoost = Math.min(refreshCount * 0.15, 0.5); // Stronger refresh variety
     const noiseWeight = noiseWeightBase + noiseBoost + refreshBoost;
 
     allResults = allResults.map(r => {
       const rating = parseFloat(r.rating || 0);
       const reviews = r.user_ratings_total || r.review_count || 0;
       const baseScore = rating * Math.log(reviews + 1);
-      const noise = (hashToUnit((r.name || '') + seedStr) - 0.5) * noiseWeight;
+      // Scale noise to be meaningful against baseScore (typically 5-15 range)
+      const noise = (hashToUnit((r.name || '') + seedStr) - 0.5) * noiseWeight * 10;
       return { ...r, _score: baseScore + noise };
     }).sort((a, b) => b._score - a._score);
     
