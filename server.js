@@ -441,11 +441,12 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     const url = `${baseUrl}?${params}`;
     logger.info("Google Places API URL:", url);
     
-    // Add price level filtering
-    if (price_range && price_range !== 'any') {
+    // Add price level filtering - REMOVED: Too restrictive, causes 0 results in many locations
+    // Google Places price levels vary greatly by region (e.g. Vietnam cafes are mostly level 1)
+    // Only apply if explicitly requested via priceMode (broke/ballin), not default "moderate"
+    if (price_range && price_range !== 'any' && price_range !== 'moderate') {
       const priceLevels = {
         'budget': '1',
-        'moderate': '2,3', 
         'expensive': '3,4',
         'luxury': '4'
       };
