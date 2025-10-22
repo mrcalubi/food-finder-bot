@@ -1467,10 +1467,12 @@ function getCachedAIDescription(restaurantName, searchTerm) {
 async function filterResults(userIntent, results) {
   if (!results || results.length === 0) return [];
   
-  logger.info(`🚀 Generating unique descriptions for top 3 results (instant!)`);
+  // Return MORE results - users expect to see many options!
+  const maxResults = 10; // Increased from 3 to 10
+  logger.info(`🚀 Generating unique descriptions for top ${maxResults} results (instant!)`);
   
   // Check cache first for AI-enhanced descriptions
-  const top3 = results.slice(0, 3);
+  const top3 = results.slice(0, maxResults); // Keep variable name for backward compatibility
   const finalResults = top3.map((place, idx) => {
     // Try to get cached AI description first
     const cachedAI = getCachedAIDescription(place.name, userIntent.search_term);
