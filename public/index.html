@@ -23,7 +23,8 @@
       <span id="location-status" class="location-status">📍 Getting your location...</span>
     </div>
     
-    <div class="quick-actions">
+    <div class="filter-sticky-wrapper">
+      <div class="quick-actions">
       <button id="super-nearby-toggle" onclick="toggleFilter('super-nearby')" class="quick-btn super-nearby off">
         <span class="btn-icon">🚶‍♂️</span>
         <span class="btn-text">Super Nearby</span>
@@ -44,6 +45,13 @@
         <span class="btn-text">Any Price</span>
         <span class="btn-subtitle">No filter</span>
       </button>
+      </div>
+    </div>
+    
+    <!-- Scroll Indicator -->
+    <div class="scroll-indicator" id="scroll-indicator">
+      <span>More results below</span>
+      <span class="arrow">↓</span>
     </div>
     
     <!-- Modern Group Voting Modal -->
@@ -731,10 +739,20 @@
     async function getRecommendations(searchType = null) {
       const query = document.getElementById("input").value.trim();
       
-      // Validate input
-      if (!query) {
+      // SMART VALIDATION: Skip validation for special search types that don't need user input
+      const skipValidation = searchType === 'surprise-me' || 
+                             activeFilters['super-nearby'] || 
+                             activeFilters['imma-walk'];
+      
+      // Validate input (unless special search type)
+      if (!query && !skipValidation) {
         alert('Please enter what you\'re looking for!');
         return;
+      }
+      
+      // Auto-fill query for special cases
+      if (!query && skipValidation) {
+        document.getElementById("input").value = 'restaurant near me';
       }
       
       // Show loading screen
@@ -1081,6 +1099,25 @@
       const button = document.getElementById(`${type}-toggle`);
       const isActive = activeFilters[type];
       
+      // EXCLUSIVE TOGGLE: Super Nearby and Imma Walk are mutually exclusive
+      if (type === 'super-nearby' && !isActive) {
+        // Turn off Imma Walk
+        if (activeFilters['imma-walk']) {
+          activeFilters['imma-walk'] = false;
+          const immaWalkBtn = document.getElementById('imma-walk-toggle');
+          immaWalkBtn.classList.remove('active');
+          immaWalkBtn.classList.add('off');
+        }
+      } else if (type === 'imma-walk' && !isActive) {
+        // Turn off Super Nearby
+        if (activeFilters['super-nearby']) {
+          activeFilters['super-nearby'] = false;
+          const superNearbyBtn = document.getElementById('super-nearby-toggle');
+          superNearbyBtn.classList.remove('active');
+          superNearbyBtn.classList.add('off');
+        }
+      }
+      
       // Toggle the state
       activeFilters[type] = !isActive;
       
@@ -1095,9 +1132,22 @@
       
       console.log(`Filter ${type} toggled:`, activeFilters[type]);
       
-      // If it's a distance filter and we have a current query, search again
-      if ((type === 'super-nearby' || type === 'imma-walk') && currentQuery) {
-        getRecommendations(currentQuery);
+      // AUTO-SEARCH: If distance filter is activated AND we have results or a query, search again
+      if ((type === 'super-nearby' || type === 'imma-walk')) {
+        const query = document.getElementById('input').value.trim();
+        const hasResults = currentRecommendations && currentRecommendations.length > 0;
+        
+        // If filter is turned ON, auto-search
+        if (activeFilters[type] && (query || hasResults)) {
+          // Use existing query or default to last search
+          const searchQuery = query || 'restaurant near me';
+          document.getElementById('input').value = searchQuery;
+          getRecommendations();
+        }
+        // If filter is turned OFF and we have results, refresh
+        else if (!activeFilters[type] && hasResults && query) {
+          getRecommendations();
+        }
       }
     }
 
@@ -1148,6 +1198,14 @@
         text.textContent = 'Any Price';
         subtitle.textContent = 'No filter';
         toggle.className = 'quick-btn price-toggle off';
+      }
+      
+      // AUTO-SEARCH: If we have results, refresh with new price filter
+      const query = document.getElementById('input').value.trim();
+      const hasResults = currentRecommendations && currentRecommendations.length > 0;
+      
+      if (hasResults && query) {
+        getRecommendations();
       }
     }
 
@@ -1641,6 +1699,85 @@
         updateLocationStatus('❌ Location detection failed - will show fallbacks when needed', true);
       }
     });
+    
+    // Scroll Indicator Logic
+    let scrollIndicatorTimeout;
+    
+    function showScrollIndicator() {
+      const indicator = document.getElementById('scroll-indicator');
+      const output = document.getElementById('output');
+      
+      // Only show if there are results and content is below the fold
+      if (output && output.children.length > 0) {
+        const outputRect = output.getBoundingClientRect();
+        const windowHeight = window.innerHeight;
+        
+        // If output extends beyond viewport, show indicator
+        if (outputRect.bottom > windowHeight) {
+          indicator.classList.add('visible');
+          
+          // Auto-hide after 3 seconds
+          clearTimeout(scrollIndicatorTimeout);
+          scrollIndicatorTimeout = setTimeout(() => {
+            indicator.classList.remove('visible');
+          }, 3000);
+        }
+      }
+    }
+    
+    function hideScrollIndicator() {
+      const indicator = document.getElementById('scroll-indicator');
+      indicator.classList.remove('visible');
+      clearTimeout(scrollIndicatorTimeout);
+    }
+    
+    // Hide indicator on scroll
+    let lastScrollTop = 0;
+    window.addEventListener('scroll', () => {
+      const st = window.pageYOffset || document.documentElement.scrollTop;
+      
+      // User scrolled down
+      if (st > lastScrollTop) {
+        hideScrollIndicator();
+      }
+      
+      lastScrollTop = st <= 0 ? 0 : st;
+    });
+    
+    // Smooth auto-scroll to results when they appear
+    function smoothScrollToResults() {
+      const output = document.getElementById('output');
+      if (output && output.children.length > 0) {
+        // Wait a bit for animations to settle
+        setTimeout(() => {
+          const firstCard = output.querySelector('.recommendation-card');
+          if (firstCard) {
+            const rect = firstCard.getBoundingClientRect();
+            const windowHeight = window.innerHeight;
+            
+            // Only auto-scroll on mobile if content is not fully visible
+            if (window.innerWidth < 768 && rect.bottom > windowHeight * 0.8) {
+              window.scrollTo({
+                top: firstCard.offsetTop - 100,
+                behavior: 'smooth'
+              });
+            }
+          }
+          
+          // Show scroll indicator if more content below
+          setTimeout(showScrollIndicator, 800);
+        }, 500);
+      }
+    }
+    
+    // Override the renderResults function to trigger scroll logic
+    const originalGetRecommendations = getRecommendations;
+    getRecommendations = async function(...args) {
+      hideScrollIndicator();
+      const result = await originalGetRecommendations.apply(this, args);
+      smoothScrollToResults();
+      return result;
+    };
   </script>
 </body>
 </html>

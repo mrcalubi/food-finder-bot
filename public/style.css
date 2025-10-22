@@ -4,11 +4,20 @@ body {
   color: #2c3e50;
   margin: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
+  padding: 0;
+  /* Mobile-first: align to top for better scrolling */
+}
+
+@media (min-width: 768px) {
+  body {
+    align-items: center;
+    padding: 2rem 0;
+  }
 }
 
 body::before {
@@ -26,15 +35,26 @@ body::before {
   text-align: center;
   width: 100%;
   max-width: 700px;
-  padding: 2rem;
+  padding: 1rem;
   background: rgba(255, 255, 255, 0.95);
-  border-radius: 24px;
+  border-radius: 0;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: none;
   position: relative;
   z-index: 1;
   animation: slideUp 0.6s ease-out;
+  min-height: 100vh;
+  /* Mobile-first: full width, no border radius, less padding */
+}
+
+@media (min-width: 768px) {
+  .container {
+    padding: 2rem;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    min-height: auto;
+  }
 }
 
 @keyframes slideUp {
@@ -49,13 +69,22 @@ body::before {
 }
 
 h1 {
-  font-size: 2.5rem;
+  font-size: 1.8rem;
   margin-bottom: 0.5rem;
+  margin-top: 0.5rem;
   background: linear-gradient(135deg, #667eea, #764ba2);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   animation: bounce 2s infinite;
+  /* Mobile-first: smaller, less spacing */
+}
+
+@media (min-width: 768px) {
+  h1 {
+    font-size: 2.5rem;
+    margin-top: 0;
+  }
 }
 
 @keyframes bounce {
@@ -71,11 +100,19 @@ h1 {
 }
 
 .subtitle {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   opacity: 0.8;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   color: #666;
   font-weight: 500;
+  /* Mobile-first: smaller, less margin */
+}
+
+@media (min-width: 768px) {
+  .subtitle {
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+  }
 }
 
 .input-box {
@@ -1886,4 +1923,115 @@ details.reason.low-rating[open] {
 .suggestion-text {
   flex: 1;
   text-align: center;
+}
+
+/* Scroll Indicator */
+.scroll-indicator {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(102, 126, 234, 0.95);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+  z-index: 1500;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  animation: bounceUpDown 2s infinite;
+  backdrop-filter: blur(10px);
+}
+
+.scroll-indicator.visible {
+  display: flex;
+}
+
+@keyframes bounceUpDown {
+  0%, 100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-10px);
+  }
+}
+
+.scroll-indicator .arrow {
+  font-size: 1.2rem;
+  animation: arrowBounce 1.5s infinite;
+}
+
+@keyframes arrowBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(5px);
+  }
+}
+
+/* Mobile-specific Quick Actions */
+@media (max-width: 767px) {
+  .quick-actions {
+    gap: 0.6rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .quick-btn {
+    padding: 10px 12px;
+    font-size: 0.85rem;
+    min-width: calc(50% - 0.3rem);
+  }
+  
+  .btn-subtitle {
+    font-size: 0.7rem;
+  }
+  
+  .btn-icon {
+    font-size: 1.2rem;
+  }
+}
+
+/* Results optimized for mobile scrolling */
+@media (max-width: 767px) {
+  .recommendation-card {
+    margin-bottom: 1rem;
+    padding: 1rem;
+  }
+  
+  .recommendation-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .restaurant-image {
+    max-height: 180px;
+  }
+}
+
+/* Sticky filter bar for mobile */
+.filter-sticky-wrapper {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.98);
+  padding: 0.75rem 0;
+  z-index: 100;
+  backdrop-filter: blur(10px);
+  margin: -1rem -1rem 1rem -1rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+@media (min-width: 768px) {
+  .filter-sticky-wrapper {
+    position: static;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
 }
