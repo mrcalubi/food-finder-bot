@@ -510,12 +510,16 @@ async function searchGoogle(userIntent, userCoordinates = null) {
         
         if (place.geometry && place.geometry.location) {
           placeLocation = place.geometry.location;
-        } else if (place.place_id) {
-          // Try to get coordinates and photos from place details
-          const details = await getPlaceDetails(place.place_id);
-          if (details) {
-            placeLocation = details.location;
-            placePhotos = details.photos || [];
+          logger.info(`✅ Found geometry for ${place.name}: ${JSON.stringify(placeLocation)}`);
+        } else {
+          logger.warn(`⚠️ NO geometry for ${place.name}, trying Place Details API`);
+          if (place.place_id) {
+            // Try to get coordinates and photos from place details
+            const details = await getPlaceDetails(place.place_id);
+            if (details) {
+              placeLocation = details.location;
+              placePhotos = details.photos || [];
+            }
           }
         }
         
@@ -527,7 +531,7 @@ async function searchGoogle(userIntent, userCoordinates = null) {
             placeLocation.lng
           );
           distanceFormatted = formatDistance(distance);
-          logger.info(`Distance calculated for ${place.name}: ${distance}km`);
+          logger.info(`📏 Distance calculated for ${place.name}: ${distance}km (${distanceFormatted})`);
         } else {
           logger.info(`No placeLocation for ${place.name}, using fallback distance estimation`);
           // Fallback: estimate distance based on location name
@@ -559,7 +563,8 @@ async function searchGoogle(userIntent, userCoordinates = null) {
         images = await getRestaurantImages(place);
       }
       
-      return {
+      // Build result object - put calculated values AFTER spread to avoid being overwritten
+      const result = {
         ...place,
         // Add enhanced metadata
         has_dietary_options: checkDietaryOptions(place, dietary_restrictions),
@@ -569,10 +574,16 @@ async function searchGoogle(userIntent, userCoordinates = null) {
         low_rating_reason: generateLowRatingReason(place),
         distance_score: calculateDistanceScore(place, userIntent.radius),
         mood_match: calculateMoodMatch(place, userIntent.mood),
-        distance: distance,
-        distance_formatted: distanceFormatted,
         images: images
       };
+      
+      // Override distance fields AFTER spreading to ensure they're not null
+      if (distance !== null) {
+        result.distance = distance;
+        result.distance_formatted = distanceFormatted;
+      }
+      
+      return result;
     }));
 
     // Apply distance and rating filters with better error handling
