@@ -525,9 +525,9 @@ async function searchGoogle(userIntent, userCoordinates = null) {
             placeLocation.lng
           );
           distanceFormatted = formatDistance(distance);
-          logger.debug(`Distance calculated for ${place.name}: ${distance}km`);
+          logger.info(`Distance calculated for ${place.name}: ${distance}km`);
         } else {
-          logger.debug(`No placeLocation for ${place.name}, using fallback distance estimation`);
+          logger.info(`No placeLocation for ${place.name}, using fallback distance estimation`);
           // Fallback: estimate distance based on location name
           // This is a simple heuristic - in production you'd want more sophisticated geocoding
           const locationText = (place.vicinity || place.formatted_address || '').toLowerCase();
@@ -1475,7 +1475,7 @@ async function filterResults(userIntent, results) {
     const cachedAI = getCachedAIDescription(place.name, userIntent.search_term);
     
     if (cachedAI) {
-      logger.debug(`💎 Using cached AI description for ${place.name}`);
+      logger.info(`💎 Using cached AI description for ${place.name}`);
       return {
         ...safeRestaurant(place),
         reason: cachedAI.reason,
