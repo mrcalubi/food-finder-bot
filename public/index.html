@@ -172,13 +172,13 @@
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M19 12H5M12 19l-7-7 7-7"/>
                     </svg>
-                </button>
+      </button>
                 <h2 class="details-title">Restaurant Details</h2>
                 <button class="details-save-btn" onclick="toggleSaveRestaurant()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
                     </svg>
-                </button>
+      </button>
             </div>
 
             <!-- Photo Carousel -->
@@ -253,7 +253,7 @@
                         <circle cx="12" cy="10" r="3"/>
                     </svg>
                     <span>Navigate</span>
-                </button>
+      </button>
                 <button class="action-btn secondary" onclick="callRestaurant()">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
@@ -269,9 +269,9 @@
                         <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
                     </svg>
                     <span>Share</span>
-                </button>
+      </button>
             </div>
-        </div>
+      </div>
     </div>
     
     <!-- Scroll Indicator -->
@@ -1291,24 +1291,29 @@
             ${label ? `<div class="card-label">${label}</div>` : ''}
             
             <!-- Card Image -->
-            ${r.images && r.images.length > 0 ? `
+          ${r.images && r.images.length > 0 ? `
               <div class="card-image-container">
                 <img src="${r.images[0].url}" alt="${r.images[0].alt || r.name}" class="card-image" loading="lazy">
                 <div class="image-overlay">
                   ${r.is_open_now ? '<span class="status-badge open">Open now</span>' : '<span class="status-badge closed">Closes soon</span>'}
                   ${r.distance_formatted ? `<span class="distance-badge">${r.distance_formatted}</span>` : ''}
-                </div>
+                      </div>
+                
+                <!-- Mini-map thumbnail -->
+                <div class="mini-map">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                    <circle cx="12" cy="10" r="3"/>
+                  </svg>
               </div>
-            ` : ''}
+            </div>
+          ` : ''}
             
             <!-- Card Content -->
             <div class="card-content">
               <div class="card-header">
                 <h3 class="card-title">${r.name || "Unknown"}</h3>
-                <div class="rating-badge">
-                  ${r.rating ? `<span class="stars">${'⭐'.repeat(Math.floor(r.rating))}</span> <strong>${r.rating}</strong>` : ""}
-                  ${r.user_ratings_total ? `<span class="review-count">(${r.user_ratings_total})</span>` : ""}
-                </div>
+                <div class="rating-inline">⭐ ${r.rating ? r.rating.toFixed(1) : '4.5'}</div>
               </div>
               
               <!-- Tags Row -->
@@ -1317,9 +1322,16 @@
                   <span class="tag">${factor}</span>
                 `).join('') : ''}
               </div>
+
+              <!-- Description -->
+              <div class="description-text">
+                ${r.description || 'This restaurant offers a unique dining experience with fresh ingredients and exceptional service.'}
+              </div>
               
-              <!-- Reason Line -->
-              ${r.reason ? `<p class="reason-line">${r.reason}</p>` : ''}
+              <!-- Why this pick -->
+              <div class="why-pick">
+                Why this pick: ${r.reason || 'Great food + close by + highly rated'}
+              </div>
               
               <!-- Action Buttons -->
               <div class="card-actions">
@@ -1334,11 +1346,11 @@
                 <button class="action-btn tertiary" onclick="event.stopPropagation(); saveRestaurant('${r.name}', '${r.location}')">
                   <span class="btn-icon">❤️</span>
                   <span class="btn-text">Save</span>
-                </button>
-              </div>
-            </div>
+            </button>
           </div>
-        `;
+        </div>
+        </div>
+      `;
       }).join("");
 
       // Update the output with results

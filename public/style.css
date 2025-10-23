@@ -533,51 +533,49 @@ body {
 /* Cards */
 .card {
   background: white;
-  border-radius: 20px;
-  margin: 1rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  margin: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   position: relative;
   cursor: pointer;
+  border: 1px solid #e5e7eb;
 }
 
 .card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
 .card-hero {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .card-alternate {
-  margin-bottom: 1rem;
+  margin-bottom: 0.625rem;
   opacity: 0.95;
 }
 
 .card-label {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  background: rgba(0, 0, 0, 0.7);
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
   color: white;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  z-index: 10;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 16px 16px 0 0;
 }
 
 .card-image-container {
   position: relative;
   width: 100%;
-  height: 200px;
+  height: 180px;
   overflow: hidden;
 }
 
 .card-hero .card-image-container {
-  height: 250px;
+  height: 220px;
 }
 
 .card-image {
@@ -588,7 +586,7 @@ body {
 }
 
 .card:hover .card-image {
-  transform: scale(1.05);
+  transform: scale(1.03);
 }
 
 .image-overlay {
@@ -597,18 +595,21 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.1) 0%, transparent 30%, transparent 70%, rgba(0, 0, 0, 0.3) 100%);
+  background: linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.2) 100%);
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  padding: 12px;
+  align-items: flex-start;
+  padding: 10px;
 }
 
 .status-badge {
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.95);
+  color: #333;
+  padding: 3px 6px;
+  border-radius: 8px;
+  font-size: 10px;
   font-weight: 600;
+  backdrop-filter: blur(4px);
 }
 
 .status-badge.open {
@@ -622,54 +623,52 @@ body {
 }
 
 .distance-badge {
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.8);
   color: white;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  padding: 3px 6px;
+  border-radius: 8px;
+  font-size: 10px;
   font-weight: 500;
+  backdrop-filter: blur(4px);
+}
+
+.mini-map {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 4px;
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+  color: #666;
 }
 
 .card-content {
-  padding: 1.25rem;
+  padding: 16px;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 0.75rem;
-  gap: 1rem;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
 .card-title {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 18px;
   font-weight: 700;
-  color: #2c3e50;
+  color: #333;
   flex: 1;
   line-height: 1.3;
 }
 
 .card-hero .card-title {
-  font-size: 1.4rem;
+  font-size: 22px;
 }
 
-.rating-badge {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.25rem;
-  min-width: 80px;
-}
-
-.stars {
-  font-size: 0.9rem;
-  line-height: 1;
-}
-
-.review-count {
-  font-size: 0.75rem;
+.rating-inline {
+  font-size: 14px;
   color: #666;
   font-weight: 500;
 }
@@ -677,88 +676,107 @@ body {
 .tags-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
 .tag {
-  background: rgba(255, 107, 107, 0.1);
-  color: #ff6b6b;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  background: #f8f9fa;
+  color: #666;
+  padding: 3px 6px;
+  border-radius: 8px;
+  font-size: 10px;
   font-weight: 500;
 }
 
-.reason-line {
-  font-size: 0.9rem;
+.description-text {
   color: #666;
+  font-size: 13px;
   line-height: 1.4;
-  margin: 0 0 1rem 0;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+}
+
+.description-text::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 30px;
+  height: 1.4em;
+  background: linear-gradient(to right, transparent, #FFFFFF);
+}
+
+.why-pick {
+  color: #888;
+  font-size: 12px;
+  line-height: 1.3;
+  margin-bottom: 12px;
+  font-style: italic;
 }
 
 .card-actions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  gap: 6px;
+  margin-top: 0;
 }
 
 .action-btn {
   flex: 1;
-  padding: 10px 16px;
+  height: 40px;
   border: none;
-  border-radius: 12px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-height: 44px;
+  gap: 4px;
 }
 
 .action-btn.primary {
   background: linear-gradient(135deg, #ff6b6b, #ff8e53);
   color: white;
-  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
 }
 
 .action-btn.primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+  box-shadow: 0 3px 8px rgba(255, 107, 107, 0.3);
 }
 
 .action-btn.secondary {
   background: #f8f9fa;
-  color: #495057;
+  color: #666;
   border: 1px solid #e9ecef;
 }
 
 .action-btn.secondary:hover {
   background: #e9ecef;
-  transform: translateY(-1px);
 }
 
 .action-btn.tertiary {
-  background: rgba(255, 107, 107, 0.1);
-  color: #ff6b6b;
-  border: 1px solid rgba(255, 107, 107, 0.3);
+  background: #f8f9fa;
+  color: #666;
+  border: 1px solid #e9ecef;
 }
 
 .action-btn.tertiary:hover {
-  background: rgba(255, 107, 107, 0.15);
-  border-color: rgba(255, 107, 107, 0.5);
-  transform: translateY(-1px);
+  background: #e9ecef;
 }
 
 .btn-icon {
-  font-size: 1rem;
+  font-size: 14px;
 }
 
 .btn-text {
-  font-size: 0.8rem;
+  font-size: 11px;
 }
 
 /* Location Status */
