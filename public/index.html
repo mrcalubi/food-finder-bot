@@ -123,6 +123,35 @@
       </div>
     </div>
     
+    <!-- Skeleton Loaders for MVP - show while fetching -->
+    <!-- WHY: Fast perceived performance = better UX -->
+    <div id="skeleton-loaders" class="skeleton-container hidden">
+      <div class="skeleton-card skeleton-hero">
+        <div class="skeleton-image"></div>
+        <div class="skeleton-content">
+          <div class="skeleton-line skeleton-title"></div>
+          <div class="skeleton-line skeleton-subtitle"></div>
+          <div class="skeleton-line skeleton-text"></div>
+        </div>
+      </div>
+      <div class="skeleton-grid">
+        <div class="skeleton-card">
+          <div class="skeleton-image"></div>
+          <div class="skeleton-content">
+            <div class="skeleton-line skeleton-title"></div>
+            <div class="skeleton-line skeleton-subtitle"></div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton-image"></div>
+          <div class="skeleton-content">
+            <div class="skeleton-line skeleton-title"></div>
+            <div class="skeleton-line skeleton-subtitle"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <div id="intent-box"></div>
     <div id="output"></div>
   </div>
@@ -756,11 +785,11 @@
         document.getElementById("input").value = 'restaurant near me';
       }
       
-      // Show loading screen
-      showLoading();
+      // Show skeleton loaders for fast perceived performance
+      // WHY: Skeletons feel faster than generic loading screens
+      showSkeletons();
       
       // Clear previous results
-      document.getElementById("output").innerHTML = "";
       document.getElementById("intent-box").innerHTML = "";
 
       // Check for network connectivity
@@ -992,27 +1021,54 @@
       }
     }
 
+    // Show skeleton loaders for fast perceived performance
+    function showSkeletons() {
+      document.getElementById('skeleton-loaders')?.classList.remove('hidden');
+      document.getElementById('output').innerHTML = '';
+    }
+    
+    function hideSkeletons() {
+      document.getElementById('skeleton-loaders')?.classList.add('hidden');
+    }
+
     function renderResults(results) {
+      hideSkeletons(); // Hide skeletons when real data arrives
+      
       if (!Array.isArray(results)) results = [results];
 
-      // Add pick for me button
-      const pickButton = `
-        <div class="pick-for-me-container">
-          <button onclick="pickForMe()" class="pick-for-me-btn">
-            <span class="dice-emoji">🎲</span>
-            <span class="pick-text">Pick for Me!</span>
+      // MVP: Show only 3 results (1 hero + 2 alternates)
+      // WHY: Reduces decision fatigue, faster load, higher quality curation
+      const displayResults = results.slice(0, 3);
+      
+      // Refresh button (replaces pick for me)
+      const refreshButton = `
+        <div class="refresh-container">
+          <button onclick="refreshResults()" class="refresh-btn">
+            <span class="refresh-icon">🔄</span>
+            <span class="refresh-text">Refresh for new options</span>
           </button>
         </div>
       `;
 
-      const resultsHTML = results.map(r => `
-        <div class="card">
+      const resultsHTML = displayResults.map((r, idx) => `
+        <div class="card ${idx === 0 ? 'card-hero' : 'card-alternate'}" data-place-id="${r.place_id || ''}">
           <div class="card-header">
-          <h3>${r.name || "Unknown"}</h3>
+            <h3>${r.name || "Unknown"}</h3>
             <div class="rating-badge">
-              ${r.rating ? `<span class="stars">${'⭐'.repeat(Math.floor(r.rating))}</span> ${r.rating}/5` : ""}
-              ${r.user_ratings_total ? `<span class="review-count">(${r.user_ratings_total} reviews)</span>` : ""}
+              ${r.rating ? `<span class="stars">${'⭐'.repeat(Math.floor(r.rating))}</span> <strong>${r.rating}</strong>/5` : ""}
+              ${r.user_ratings_total ? `<span class="review-count">(${r.user_ratings_total})</span>` : ""}
             </div>
+          </div>
+          
+          <!-- Badges below title - cleaner positioning -->
+          <div style="margin-bottom: 12px;">
+            ${r.is_open_now ? '<span class="open-now-badge">✅ Open Now</span>' : ''}
+            ${r.why_factors && r.why_factors.length > 0 ? r.why_factors.map(factor => `
+              <span class="why-chip" title="${r.why_factors.join(' • ')}">
+                <span class="why-icon">💡</span>
+                <span class="why-text">${factor}</span>
+              </span>
+            `).join('') : ''}
           </div>
           ${r.images && r.images.length > 0 ? `
             <div class="restaurant-images-gallery">
@@ -1075,27 +1131,15 @@
           
           <div class="restaurant-actions">
             <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((r.name || "") + " " + (r.location || ""))}" 
-               target="_blank" class="action-btn primary">📍 Open in Maps</a>
-            <button class="action-btn like" onclick="likeRestaurant('${r.name}', '${r.location}', '${r.price}', '${r.rating}')">
-              ❤️ Like
-            </button>
-            <button class="action-btn dislike" onclick="dislikeRestaurant('${r.name}', '${r.location}', '${r.price}', '${r.rating}')">
-              👎 Dislike
+               target="_blank" class="action-btn primary">📍 View on Maps</a>
+            <button class="action-btn secondary" onclick="notIntoThis('${r.place_id || ''}', '${r.name}', ${idx})">
+              🔄 Not into this
             </button>
           </div>
         </div>
       `).join("");
 
-      // Group vote button that appears after results
-      const refreshButton = `
-        <div class="group-vote-trigger" id="refresh-results-trigger">
-          <button onclick="refreshResults()" class="group-vote-btn">
-            <span class="btn-icon">🔄</span>
-            <span class="btn-text">Refresh Results</span>
-          </button>
-        </div>
-      `;
-
+      // Group vote button (optional feature)
       const groupVoteButton = `
         <div class="group-vote-trigger" id="group-vote-results-trigger">
           <button onclick="openGroupVoting()" class="group-vote-btn">
@@ -1105,7 +1149,33 @@
         </div>
       `;
       
-      document.getElementById("output").innerHTML = pickButton + refreshButton + resultsHTML + groupVoteButton;
+      // Update the output with: refresh button + results + group vote option
+      document.getElementById("output").innerHTML = refreshButton + resultsHTML + groupVoteButton;
+    }
+    
+    // "Not into this" button - learns from user rejections and refreshes
+    // WHY: Personalization through negative feedback, shows we're listening
+    function notIntoThis(placeId, placeName, cardIndex) {
+      console.log(`User rejected: ${placeName}`);
+      
+      // Track rejection for future personalization
+      const query = document.getElementById('input').value;
+      trackRestaurantRejection({ name: placeName, place_id: placeId }, query, {});
+      
+      // Visual feedback - fade out the card
+      const cards = document.querySelectorAll('.card');
+      if (cards[cardIndex]) {
+        cards[cardIndex].style.opacity = '0.5';
+        cards[cardIndex].style.transition = 'opacity 0.3s ease';
+      }
+      
+      // Show feedback toast
+      showFeedback('👍 Got it! Finding better matches...');
+      
+      // Auto-refresh after short delay for better options
+      setTimeout(() => {
+        refreshResults();
+      }, 800);
     }
 
     // Refresh results to increase variety and avoid repeats

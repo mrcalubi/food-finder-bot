@@ -2035,3 +2035,265 @@ details.reason.low-rating[open] {
     backdrop-filter: none;
   }
 }
+
+/* ========================================
+   MVP SKELETON LOADERS - Fast Perceived Performance
+   WHY: Users perceive skeleton loaders as 2x faster than spinners
+   ======================================== */
+
+.skeleton-container {
+  width: 100%;
+  max-width: 700px;
+  margin: 2rem auto;
+  padding: 1rem;
+  animation: fadeIn 0.3s ease;
+}
+
+.skeleton-container.hidden {
+  display: none;
+}
+
+.skeleton-card {
+  background: white;
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.skeleton-hero {
+  margin-bottom: 2rem;
+}
+
+.skeleton-image {
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 0%,
+    #e0e0e0 50%,
+    #f0f0f0 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-hero .skeleton-image {
+  height: 300px;
+}
+
+.skeleton-content {
+  padding: 1.25rem;
+}
+
+.skeleton-line {
+  height: 16px;
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 0%,
+    #e0e0e0 50%,
+    #f0f0f0 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.skeleton-title {
+  width: 60%;
+  height: 24px;
+}
+
+.skeleton-subtitle {
+  width: 40%;
+  height: 18px;
+}
+
+.skeleton-text {
+  width: 80%;
+  height: 14px;
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ========================================
+   MVP CARD ENHANCEMENTS - Clean & Modern
+   ======================================== */
+
+.card {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hero {
+  border: 2px solid #FF6B6B;
+  box-shadow: 0 8px 24px rgba(255, 107, 107, 0.2);
+}
+
+.card-alternate {
+  opacity: 0.95;
+}
+
+/* "Why this?" Chip - Moved below image to avoid blocking */
+.why-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #667eea;
+  cursor: help;
+  transition: all 0.2s ease;
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+.why-chip:hover {
+  background: rgba(102, 126, 234, 0.15);
+  border-color: rgba(102, 126, 234, 0.5);
+  transform: translateY(-1px);
+}
+
+.why-icon {
+  font-size: 0.9rem;
+}
+
+.why-text {
+  white-space: nowrap;
+}
+
+/* Open Now Badge - Moved to inline position */
+.open-now-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #4CAF50;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(76, 175, 80, 0.25);
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+/* Refresh Button - Modern & Minimal */
+.refresh-container {
+  text-align: center;
+  margin: 2rem 0 1.5rem 0;
+}
+
+.refresh-btn {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  padding: 12px 32px;
+  border-radius: 50px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.refresh-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.refresh-btn:active {
+  transform: scale(0.98);
+}
+
+.refresh-icon {
+  font-size: 1.2rem;
+}
+
+.refresh-btn:hover .refresh-icon {
+  animation: spin 0.6s ease;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* "Not into this" Button - Secondary Action */
+.action-btn.secondary {
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #e0e0e0;
+  transition: all 0.2s ease;
+}
+
+.action-btn.secondary:hover {
+  background: #e0e0e0;
+  color: #333;
+  transform: translateY(-1px);
+}
+
+/* Mobile optimizations for MVP */
+@media (max-width: 767px) {
+  .skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .why-chip {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+  
+  .why-icon {
+    font-size: 0.8rem;
+  }
+  
+  .open-now-badge {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+  
+  .refresh-btn {
+    padding: 10px 24px;
+    font-size: 0.9rem;
+  }
+}

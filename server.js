@@ -4,6 +4,8 @@ import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import NodeCache from 'node-cache';
+import rateLimit from 'express-rate-limit';
 
 dotenv.config();
 
@@ -67,9 +69,64 @@ const logger = {
   debug: (message, data = {}) => console.log(`🐛 ${message}`, data)
 };
 
-// AI Description Cache (in-memory for now)
-const aiDescriptionCache = new Map();
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+// AI Description Cache with automatic TTL cleanup
+const aiDescriptionCache = new NodeCache({ 
+  stdTTL: 24 * 60 * 60,  // 24 hours in seconds
+  maxKeys: 1000,          // Max 1000 AI descriptions
+  checkperiod: 3600,      // Check for expired entries every hour
+  useClones: false        // Better performance
+});
+
+// User Profile Cache with automatic cleanup
+const userProfileCache = new NodeCache({
+  stdTTL: 7 * 24 * 60 * 60,  // 7 days in seconds
+  maxKeys: 10000,             // Max 10k users
+  checkperiod: 3600,          // Check every hour
+  useClones: false
+});
+
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (kept for backwards compatibility)
+
+// Singaporean & Asian food keyword database for better query recognition
+const singaporeanFoodKeywords = {
+  // Indian & Malay
+  'prata': { type: 'Indian flatbread', cuisine: 'Indian', alternatives: ['roti prata', 'plain prata', 'cheese prata'] },
+  'roti prata': { type: 'Indian flatbread', cuisine: 'Indian', alternatives: ['prata', 'roti canai'] },
+  'nasi lemak': { type: 'Malay rice dish', cuisine: 'Malay', alternatives: ['coconut rice'] },
+  'mee goreng': { type: 'Fried noodles', cuisine: 'Malay/Indian', alternatives: ['fried noodles'] },
+  'biryani': { type: 'Rice dish', cuisine: 'Indian', alternatives: ['briyani', 'chicken rice'] },
+  
+  // Chinese
+  'chicken rice': { type: 'Hainanese chicken rice', cuisine: 'Chinese', alternatives: ['hainanese chicken', 'steamed chicken'] },
+  'char kway teow': { type: 'Fried flat noodles', cuisine: 'Chinese', alternatives: ['ckw', 'fried noodles'] },
+  'hokkien mee': { type: 'Fried prawn noodles', cuisine: 'Chinese', alternatives: ['fried prawn mee'] },
+  'bak kut teh': { type: 'Pork rib soup', cuisine: 'Chinese', alternatives: ['pork rib soup'] },
+  'dim sum': { type: 'Small dishes', cuisine: 'Chinese', alternatives: ['dumplings', 'har gow', 'siew mai'] },
+  'carrot cake': { type: 'Fried radish cake', cuisine: 'Chinese', alternatives: ['chai tow kway', 'fried carrot cake'] },
+  'oyster omelette': { type: 'Egg dish', cuisine: 'Chinese', alternatives: ['or luak', 'oyster egg'] },
+  
+  // Peranakan
+  'laksa': { type: 'Spicy noodle soup', cuisine: 'Peranakan', alternatives: ['curry laksa', 'lemak laksa'] },
+  'rojak': { type: 'Fruit & vegetable salad', cuisine: 'Peranakan', alternatives: ['fruit rojak'] },
+  
+  // Seafood
+  'chili crab': { type: 'Crab in chili sauce', cuisine: 'Singaporean', alternatives: ['crab', 'seafood'] },
+  'black pepper crab': { type: 'Crab in pepper sauce', cuisine: 'Singaporean', alternatives: ['crab', 'seafood'] },
+  
+  // Satay & BBQ
+  'satay': { type: 'Grilled meat skewers', cuisine: 'Malay', alternatives: ['bbq skewers', 'grilled meat'] },
+  
+  // Soup
+  'fish head curry': { type: 'Curry soup', cuisine: 'Indian/Chinese', alternatives: ['curry fish'] },
+  'bak chor mee': { type: 'Minced meat noodles', cuisine: 'Chinese', alternatives: ['minced pork noodles'] },
+  
+  // Other Asian
+  'pho': { type: 'Vietnamese noodle soup', cuisine: 'Vietnamese', alternatives: ['vietnamese soup'] },
+  'banh mi': { type: 'Vietnamese sandwich', cuisine: 'Vietnamese', alternatives: ['vietnamese sandwich'] },
+  'pad thai': { type: 'Thai fried noodles', cuisine: 'Thai', alternatives: ['thai noodles'] },
+  'tom yum': { type: 'Thai spicy soup', cuisine: 'Thai', alternatives: ['tom yam', 'spicy soup'] },
+  'ramen': { type: 'Japanese noodle soup', cuisine: 'Japanese', alternatives: ['japanese noodles'] }
+};
 
 // Enhanced fallback restaurants with more variety
 const fallbackRestaurants = [
@@ -126,6 +183,30 @@ function safeRestaurant(r) {
 // Enhanced query parser with context awareness
 async function parseUserIntent(userInput, userLocation = null, context = {}, searchType = null) {
   try {
+    // STEP 1: Check for Singaporean/Asian food keywords FIRST (fast path)
+    const lowerInput = userInput.toLowerCase().trim();
+    for (const [foodName, foodData] of Object.entries(singaporeanFoodKeywords)) {
+      if (lowerInput === foodName || lowerInput.includes(foodName)) {
+        logger.success(`🍽️ Recognized food keyword: "${foodName}" (${foodData.cuisine})`);
+        return {
+          search_term: foodName,
+          location: userLocation || 'Singapore',
+          radius: detectDistanceIntent(userInput, searchType),
+          dietary_restrictions: [],
+          special_occasions: [],
+          price_range: 'moderate',
+          min_rating: null,
+          time_requirement: null,
+          special_features: [],
+          mood: 'casual',
+          confidence: 0.95, // High confidence for known foods!
+          needs_clarification: false,
+          suggested_alternatives: foodData.alternatives || []
+        };
+      }
+    }
+    
+    // STEP 2: If no keyword match, use OpenAI for natural language understanding
     if (!openai) {
       logger.warn("OpenAI not initialized - using fallback intent parsing");
       return createFallbackIntent(userInput, userLocation);
@@ -596,39 +677,42 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     const beforeFilter = results.length;
     
     results = results.filter(place => {
-      // Distance filter - temporarily disabled for deployment to ensure results
-      // if (userIntent.radius && place.distance !== null && place.distance !== undefined) {
-      //   const distanceKm = typeof place.distance === 'number' ? place.distance : parseFloat(place.distance);
-      //   if (!isNaN(distanceKm)) {
-      //     // Apply appropriate tolerance based on search type (very lenient for deployment)
-      //     let maxDistance = userIntent.radius;
-      //     if (userIntent.radius === 1) {
-      //       maxDistance = 3.0; // "near me" - allow up to 3km
-      //     } else if (userIntent.radius === 0.3) {
-      //       maxDistance = 1.0; // "super nearby" - allow up to 1km
-      //     } else if (userIntent.radius === 0.5) {
-      //       maxDistance = 1.5; // "imma walk" - allow up to 1.5km
-      //     }
-      //     
-      //     if (distanceKm > maxDistance) {
-      //       logger.debug(`Filtered out ${place.name} - distance ${distanceKm}km > ${maxDistance}km`);
-      //       return false;
-      //     }
-      //   }
-      // }
+      // Distance filter - RE-ENABLED with improved tolerance
+      if (userIntent.radius && place.distance !== null && place.distance !== undefined) {
+        const distanceKm = typeof place.distance === 'number' ? place.distance : parseFloat(place.distance);
+        if (!isNaN(distanceKm)) {
+          // Apply appropriate tolerance based on search type (50% tolerance)
+          let maxDistance = userIntent.radius;
+          if (userIntent.radius === 1) {
+            maxDistance = 1.5; // "near me" - allow up to 1.5km (50% tolerance)
+          } else if (userIntent.radius === 0.3) {
+            maxDistance = 0.5; // "super nearby" - allow up to 500m
+          } else if (userIntent.radius === 0.5) {
+            maxDistance = 0.8; // "imma walk" - allow up to 800m
+          } else {
+            // For other radii, add 50% tolerance
+            maxDistance = userIntent.radius * 1.5;
+          }
+          
+          if (distanceKm > maxDistance) {
+            logger.debug(`Filtered out ${place.name} - distance ${distanceKm}km > ${maxDistance}km`);
+            return false;
+          }
+        }
+      }
       
-      // Rating filter - temporarily disabled for deployment
-      // if (userIntent.min_rating && place.rating !== null && place.rating !== undefined) {
-      //   const placeRating = typeof place.rating === 'number' ? place.rating : parseFloat(place.rating);
-      //   if (!isNaN(placeRating)) {
-      //     // For "5 stars" (min_rating: 4.5), allow 3.5+ to be very forgiving
-      //     const minRating = userIntent.min_rating === 4.5 ? 3.5 : userIntent.min_rating;
-      //     if (placeRating < minRating) {
-      //       logger.debug(`Filtered out ${place.name} - rating ${placeRating} < ${minRating}`);
-      //       return false;
-      //     }
-      //   }
-      // }
+      // Rating filter - RE-ENABLED
+      if (userIntent.min_rating && place.rating !== null && place.rating !== undefined) {
+        const placeRating = typeof place.rating === 'number' ? place.rating : parseFloat(place.rating);
+        if (!isNaN(placeRating)) {
+          // Apply min rating with small tolerance (0.2 stars)
+          const minRating = userIntent.min_rating - 0.2;
+          if (placeRating < minRating) {
+            logger.debug(`Filtered out ${place.name} - rating ${placeRating} < ${minRating}`);
+            return false;
+          }
+        }
+      }
       
       return true;
     });
@@ -656,34 +740,39 @@ async function searchGoogle(userIntent, userCoordinates = null) {
   }
 }
 
-// Enhanced scoring algorithm with personalization
+// Enhanced scoring algorithm with personalization + open_now priority
 function calculateOverallScore(place, userIntent, userId = null) {
   let score = 0;
   
-  // Base rating (weighted by review count) - 25% weight
+  // CRITICAL: Open now status - 30% weight (MVP priority!)
+  // WHY: Users want places they can visit NOW, not just browse
+  const isOpenNow = place.opening_hours?.open_now || place.open_now || false;
+  score += isOpenNow ? 3.0 : 0.0; // Major boost for open places
+  
+  // Base rating (weighted by review count) - 20% weight
   const rating = place.rating || 0;
   const reviewCount = place.user_ratings_total || 0;
-  score += rating * Math.log(reviewCount + 1) * 0.25;
+  score += rating * Math.log(reviewCount + 1) * 0.2;
   
-  // Distance factor - 20% weight
-  score += place.distance_score * 0.2;
+  // Distance factor - 20% weight (crucial for "near me")
+  score += (place.distance_score || 0.5) * 0.2;
   
-  // Price match - 15% weight
-  score += calculatePriceMatch(place.price_level, userIntent.price_range) * 0.15;
+  // Price match - 10% weight
+  score += calculatePriceMatch(place.price_level, userIntent.price_range) * 0.1;
   
-  // Dietary match - 15% weight
-  score += calculateDietaryMatch(place, userIntent.dietary_restrictions) * 0.15;
+  // Dietary match - 10% weight
+  score += calculateDietaryMatch(place, userIntent.dietary_restrictions) * 0.1;
   
-  // Mood match - 10% weight
-  score += place.mood_match * 0.1;
+  // Cuisine match - 5% weight
+  score += calculateCuisineMatch(place, userIntent.search_term) * 0.05;
   
-  // Cuisine match - 10% weight
-  score += calculateCuisineMatch(place, userIntent.search_term) * 0.1;
+  // Mood match - 3% weight
+  score += (place.mood_match || 0.5) * 0.03;
   
-  // Personalization score - 5% weight
+  // Personalization score - 2% weight
   if (userId) {
     const personalizationScore = calculatePersonalizationScore(place, userId);
-    score += personalizationScore * 0.05;
+    score += personalizationScore * 0.02;
   }
   
   return score;
@@ -691,7 +780,7 @@ function calculateOverallScore(place, userIntent, userId = null) {
 
 // Calculate personalization score based on user preferences
 function calculatePersonalizationScore(place, userId) {
-  const profile = userProfiles.get(userId);
+  const profile = userProfileCache.get(userId);
   if (!profile || profile.totalInteractions < 2) {
     return 0; // No personalization data available
   }
@@ -735,9 +824,13 @@ function calculatePersonalizationScore(place, userId) {
   return Math.max(Math.min(personalizationScore, 1), -0.5); // Clamp between -0.5 and 1
 }
 
-// User profiles and preference tracking
-const userProfiles = new Map();
-const conversationHistory = new Map();
+// Conversation History Cache (short-lived)
+const conversationHistory = new NodeCache({
+  stdTTL: 30 * 60,  // 30 minutes in seconds
+  maxKeys: 5000,     // Max 5k conversations
+  checkperiod: 600,  // Check every 10 minutes
+  useClones: false
+});
 
 // User preference categories
 const PREFERENCE_CATEGORIES = {
@@ -752,8 +845,9 @@ const PREFERENCE_CATEGORIES = {
 
 // Initialize user profile
 function initializeUserProfile(userId) {
-  if (!userProfiles.has(userId)) {
-    userProfiles.set(userId, {
+  let profile = userProfileCache.get(userId);
+  if (!profile) {
+    profile = {
       id: userId,
       preferences: {
         [PREFERENCE_CATEGORIES.CUISINE]: new Map(),
@@ -769,9 +863,10 @@ function initializeUserProfile(userId) {
       dislikedRestaurants: new Set(),
       lastUpdated: new Date(),
       totalInteractions: 0
-    });
+    };
+    userProfileCache.set(userId, profile);
   }
-  return userProfiles.get(userId);
+  return profile;
 }
 
 // Update user preferences based on interaction
@@ -873,7 +968,7 @@ function getPriceRangeFromLevel(priceLevel) {
 
 // Get user's top preferences
 function getUserTopPreferences(userId, category, limit = 5) {
-  const profile = userProfiles.get(userId);
+  const profile = userProfileCache.get(userId);
   if (!profile) return [];
   
   const preferences = profile.preferences[category];
@@ -885,7 +980,7 @@ function getUserTopPreferences(userId, category, limit = 5) {
 
 // Generate personalized search suggestions
 function generatePersonalizedSuggestions(userId, baseQuery) {
-  const profile = userProfiles.get(userId);
+  const profile = userProfileCache.get(userId);
   if (!profile || profile.totalInteractions < 3) {
     return []; // Not enough data for personalization
   }
@@ -979,14 +1074,15 @@ async function getPlaceDetails(placeId) {
   }
 }
 
-// Get Google Places photo URL using proxy endpoint
+// Get Google Places photo URL using proxy endpoint (SECURE - hides API key)
 function getGooglePhotoUrl(photoReference, maxWidth = 400) {
   if (!photoReference) return null;
+  // Use proxy endpoint to prevent API key exposure
   return `/api/photo?photo_reference=${photoReference}&maxwidth=${maxWidth}`;
 }
 
 
-// Get restaurant images from Google Places (official photos only)
+// Get restaurant images from Google Places with Unsplash fallback
 async function getRestaurantImages(place) {
   const images = [];
   
@@ -1009,6 +1105,25 @@ async function getRestaurantImages(place) {
         });
       }
     }
+  }
+  
+  // FALLBACK: If no Google photos, use Unsplash for high-quality food imagery
+  // WHY: Visual appeal is crucial for MVP - empty states kill conversion
+  if (images.length === 0) {
+    const cuisineType = place.types?.find(t => 
+      ['restaurant', 'cafe', 'bakery', 'bar', 'food'].includes(t)
+    ) || 'restaurant';
+    const searchQuery = encodeURIComponent(`${cuisineType} food interior`);
+    
+    // Unsplash Source API - free, no key required for MVP
+    const unsplashUrl = `https://source.unsplash.com/800x600/?${searchQuery}`;
+    images.push({
+      url: unsplashUrl,
+      source: 'unsplash',
+      alt: `${place.name} - ${cuisineType} ambiance`,
+      quality: 'curated',
+      isOwnerUploaded: false
+    });
   }
   
   return images;
@@ -1451,13 +1566,10 @@ Return JSON array with creative descriptions for each. Make them DIFFERENT from 
     
     const aiDescriptions = JSON.parse(content);
     
-    // Cache AI descriptions by restaurant name
+    // Cache AI descriptions by restaurant name (NodeCache automatically handles TTL)
     aiDescriptions.forEach(desc => {
       const cacheKey = `${desc.name}_${userIntent.search_term}`.toLowerCase();
-      aiDescriptionCache.set(cacheKey, {
-        ...desc,
-        timestamp: Date.now()
-      });
+      aiDescriptionCache.set(cacheKey, desc); // TTL is automatic with NodeCache
     });
     
     logger.success(`✨ AI enhanced ${aiDescriptions.length} descriptions and cached them!`);
@@ -1466,26 +1578,19 @@ Return JSON array with creative descriptions for each. Make them DIFFERENT from 
   }
 }
 
-// Get cached AI description if available
+// Get cached AI description if available (NodeCache automatically handles expiry)
 function getCachedAIDescription(restaurantName, searchTerm) {
   const cacheKey = `${restaurantName}_${searchTerm}`.toLowerCase();
-  const cached = aiDescriptionCache.get(cacheKey);
-  
-  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-    return cached;
-  }
-  
-  // Clean up expired cache
-  if (cached) aiDescriptionCache.delete(cacheKey);
-  return null;
+  return aiDescriptionCache.get(cacheKey) || null; // NodeCache returns undefined if expired/missing
 }
 
 // Enhanced AI filtering with better error handling
 async function filterResults(userIntent, results) {
   if (!results || results.length === 0) return [];
   
-  // Return MORE results - users expect to see many options!
-  const maxResults = 10; // Increased from 3 to 10
+  // Return 3 results for MVP: 1 hero + 2 alternates (focused curation)
+  // WHY: Faster load, less decision fatigue, higher quality per result
+  const maxResults = 3;
   logger.info(`🚀 Generating unique descriptions for top ${maxResults} results (instant!)`);
   
   // Check cache first for AI-enhanced descriptions
@@ -1649,6 +1754,16 @@ async function filterResults(userIntent, results) {
       dietary = 'Standard menu - inquire about dietary modifications';
     }
     
+    // Generate "Why this?" tooltip factors (2-3 key reasons)
+    // WHY: Transparency builds trust, users want to know the "why"
+    const whyFactors = [];
+    const isOpenNow = place.opening_hours?.open_now || place.open_now || false;
+    if (isOpenNow) whyFactors.push('Open now');
+    if (place.distance_formatted) whyFactors.push(place.distance_formatted + ' away');
+    if (rating >= 4.5) whyFactors.push(rating + '⭐ rating');
+    else if (reviews > 1000) whyFactors.push(reviews + '+ reviews');
+    if (whyFactors.length < 2 && place.price_category === 'budget') whyFactors.push('Affordable');
+    
     return {
       ...safeRestaurant(place),
       reason,
@@ -1656,7 +1771,9 @@ async function filterResults(userIntent, results) {
       occasion_fit: occasion,
       dietary_match: dietary,
       images: place.images || [],
-      ai_enhanced: false
+      ai_enhanced: false,
+      why_factors: whyFactors.slice(0, 3), // Max 3 factors for clean UI
+      is_open_now: isOpenNow // Easy access for frontend
     };
   });
   
@@ -1672,6 +1789,29 @@ async function filterResults(userIntent, results) {
   
   return finalResults;
 }
+
+// Rate limiters for different endpoints (MUST be defined before routes)
+const recommendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per 15 minutes
+  message: {
+    error: 'Too many recommendation requests from this IP, please try again later.',
+    retryAfter: 15 * 60
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // More lenient for other endpoints
+  message: {
+    error: 'Too many requests from this IP, please try again later.',
+    retryAfter: 15 * 60
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // Proxy endpoint for Google Places photos to handle CORS issues
 app.get('/api/photo', async (req, res) => {
@@ -1711,7 +1851,7 @@ app.get("/", (req, res) => {
   res.sendFile(join(__dirname, "public", "index.html"));
 });
 
-app.post("/recommend", async (req, res) => {
+app.post("/recommend", recommendLimiter, async (req, res) => {
   try {
     const { query, userLocation, searchType, priceMode, userCoordinates, randomSeed, refreshCount = 0, avoidPlaceIds = [] } = req.body;
     
@@ -1909,13 +2049,17 @@ app.get("/health", (req, res) => {
       multi_source_data: true,
       fallback_mode: !configValid,
       personalization: true,
-      user_profiles: userProfiles.size
+      user_profiles: userProfileCache.keys().length,
+      cache_stats: {
+        ai_descriptions: aiDescriptionCache.keys().length,
+        conversations: conversationHistory.keys().length
+      }
     }
   });
 });
 
 // User interaction tracking endpoint
-app.post("/interaction", (req, res) => {
+app.post("/interaction", generalLimiter, (req, res) => {
   try {
     const { userId, query, selectedRestaurant, rejectedRestaurants, userIntent } = req.body;
     
@@ -1934,7 +2078,7 @@ app.post("/interaction", (req, res) => {
     res.json({ 
       success: true, 
       message: "Interaction recorded successfully",
-      totalInteractions: userProfiles.get(userId)?.totalInteractions || 0
+      totalInteractions: userProfileCache.get(userId)?.totalInteractions || 0
     });
     
   } catch (error) {
@@ -1944,10 +2088,10 @@ app.post("/interaction", (req, res) => {
 });
 
 // Get user profile endpoint
-app.get("/profile/:userId", (req, res) => {
+app.get("/profile/:userId", generalLimiter, (req, res) => {
   try {
     const { userId } = req.params;
-    const profile = userProfiles.get(userId);
+    const profile = userProfileCache.get(userId);
     
     if (!profile) {
       return res.status(404).json({ error: "User profile not found" });
@@ -1975,7 +2119,7 @@ app.get("/profile/:userId", (req, res) => {
 });
 
 // Get personalized suggestions endpoint
-app.get("/suggestions/:userId", (req, res) => {
+app.get("/suggestions/:userId", generalLimiter, (req, res) => {
   try {
     const { userId } = req.params;
     const { query = "" } = req.query;
@@ -1984,7 +2128,7 @@ app.get("/suggestions/:userId", (req, res) => {
     
     res.json({
       suggestions,
-      hasPersonalization: userProfiles.get(userId)?.totalInteractions >= 3
+      hasPersonalization: userProfileCache.get(userId)?.totalInteractions >= 3
     });
     
   } catch (error) {
