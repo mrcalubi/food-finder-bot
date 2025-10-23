@@ -1295,9 +1295,9 @@
               <div class="card-image-container">
                 <img src="${r.images[0].url}" alt="${r.images[0].alt || r.name}" class="card-image" loading="lazy">
                 <div class="image-overlay">
-                  ${r.is_open_now ? '<span class="status-badge open">Open now</span>' : '<span class="status-badge closed">Closes soon</span>'}
+                  ${r.opening_hours?.open_now ? '<span class="status-badge open">Open now</span>' : '<span class="status-badge closed">Closes soon</span>'}
                   ${r.distance_formatted ? `<span class="distance-badge">${r.distance_formatted}</span>` : ''}
-                      </div>
+                </div>
                 
                 <!-- Mini-map thumbnail -->
                 <div class="mini-map">
@@ -1325,12 +1325,12 @@
 
               <!-- Description -->
               <div class="description-text">
-                ${r.description || 'This restaurant offers a unique dining experience with fresh ingredients and exceptional service.'}
+                ${r.description || r.editorial_summary?.overview || r.vicinity || 'This restaurant offers a unique dining experience with fresh ingredients and exceptional service.'}
               </div>
               
               <!-- Why this pick -->
               <div class="why-pick">
-                Why this pick: ${r.reason || 'Great food + close by + highly rated'}
+                Why this pick: ${r.reason || r.why_factors?.join(' + ') || 'Great food + close by + highly rated'}
               </div>
               
               <!-- Action Buttons -->
@@ -2143,11 +2143,11 @@
       if (!restaurant) return;
       
       // Populate restaurant details
-      document.getElementById('details-restaurant-name').textContent = restaurant.name;
+      document.getElementById('details-restaurant-name').textContent = restaurant.name || 'Unknown Restaurant';
       
       // Update rating
-      const rating = restaurant.rating || 4.5;
-      const reviewCount = restaurant.reviewCount || Math.floor(Math.random() * 500) + 50;
+      const rating = restaurant.rating && typeof restaurant.rating === 'number' ? restaurant.rating : 4.5;
+      const reviewCount = restaurant.user_ratings_total || restaurant.reviewCount || Math.floor(Math.random() * 500) + 50;
       const starsContainer = document.querySelector('#details-restaurant-rating .stars');
       const reviewCountSpan = document.querySelector('#details-restaurant-rating .review-count');
       
@@ -2164,7 +2164,7 @@
       // Update tags
       const tagsContainer = document.getElementById('details-restaurant-tags');
       tagsContainer.innerHTML = '';
-      const tags = restaurant.tags || ['Popular', 'Good Value', 'Quick Service'];
+      const tags = restaurant.why_factors || restaurant.tags || ['Popular', 'Good Value', 'Quick Service'];
       tags.forEach(tag => {
         const tagElement = document.createElement('span');
         tagElement.className = 'tag';
@@ -2173,14 +2173,20 @@
       });
       
       // Update address
-      document.getElementById('details-restaurant-address').querySelector('span').textContent = restaurant.location || '123 Main Street, City, State';
+      const address = restaurant.vicinity || restaurant.formatted_address || restaurant.location || '123 Main Street, City, State';
+      document.getElementById('details-restaurant-address').querySelector('span').textContent = address;
       
       // Update hours
-      const hoursText = restaurant.hours || 'Open until 10:00 PM';
+      let hoursText = 'Hours not available';
+      if (restaurant.opening_hours?.weekday_text) {
+        hoursText = restaurant.opening_hours.weekday_text[0] || 'Hours not available';
+      } else if (restaurant.hours) {
+        hoursText = restaurant.hours;
+      }
       document.getElementById('details-restaurant-hours').querySelector('span').textContent = hoursText;
       
       // Update description
-      const description = restaurant.description || 'This restaurant offers a unique dining experience with fresh ingredients and exceptional service.';
+      const description = restaurant.description || restaurant.editorial_summary?.overview || restaurant.vicinity || 'This restaurant offers a unique dining experience with fresh ingredients and exceptional service.';
       document.getElementById('details-restaurant-description').querySelector('p').textContent = description;
       
       // Populate photo carousel
@@ -2204,13 +2210,22 @@
       carouselTrack.innerHTML = '';
       indicators.innerHTML = '';
       
-      // Generate sample photos (in real app, these would come from restaurant data)
-      const photos = [
-        restaurant.image || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=800&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=800&h=600&fit=crop'
-      ];
+      // Use actual restaurant images if available, otherwise fallback to sample photos
+      let photos = [];
+      
+      if (restaurant.images && restaurant.images.length > 0) {
+        photos = restaurant.images.map(img => img.url);
+      } else if (restaurant.photos && restaurant.photos.length > 0) {
+        photos = restaurant.photos.map(photo => photo.getUrl ? photo.getUrl() : photo);
+      } else {
+        // Fallback to sample photos
+        photos = [
+          restaurant.image || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&h=600&fit=crop',
+          'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=600&fit=crop',
+          'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=800&h=600&fit=crop',
+          'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=800&h=600&fit=crop'
+        ];
+      }
       
       photos.forEach((photo, index) => {
         // Create photo slide
