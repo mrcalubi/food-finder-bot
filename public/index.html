@@ -1313,7 +1313,7 @@
             <div class="card-content">
               <div class="card-header">
                 <h3 class="card-title">${r.name || "Unknown"}</h3>
-                <div class="rating-inline">⭐ ${r.rating ? r.rating.toFixed(1) : '4.5'}</div>
+                <div class="rating-inline">⭐ ${r.rating && typeof r.rating === 'number' ? r.rating.toFixed(1) : '4.5'}</div>
               </div>
               
               <!-- Tags Row -->
