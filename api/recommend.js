@@ -88,13 +88,16 @@ async function rewriteQuery(userInput, userLocation = null) {
           content: `You are an expert food recommendation assistant. Extract user intent for food recommendations.
 
           CRITICAL: Pay close attention to the user's exact words:
-          - "cheap", "affordable", "budget" = budget price range
+          - "cheap", "affordable", "budget", "under $15" = budget price range (price_level 1-2)
+          - "fast casual", "under 30 minutes", "quick lunch" = fast service + casual dining
           - "cafe", "coffee shop" = cafe domain (NOT restaurant)
           - "nearby", "near me" = use the user's current location
-          - "expensive", "luxury" = expensive/luxury price range
-          - "moderate" = moderate price range
+          - "expensive", "luxury" = expensive/luxury price range (price_level 4)
+          - "moderate" = moderate price range (price_level 2-3)
           - "highly rated", "best rated" = requires 4.8+ stars
           - "popular", "famous" = requires 500+ reviews
+          - "healthy", "fresh options" = dietary_restrictions: ["healthy", "fresh"]
+          - "spicy" = cuisine_type: "spicy" or types: ["spicy_food"]
 
           ${locationContext}
 
@@ -268,8 +271,14 @@ async function searchGoogle(userIntent, userCoordinates = null) {
       key: process.env.GOOGLE_MAPS_API_KEY,
       type: 'restaurant',
       opennow: 'true',
-      fields: 'place_id,name,rating,user_ratings_total,price_level,vicinity,formatted_address,geometry,photos,types,business_status'
+      fields: 'place_id,name,rating,user_ratings_total,price_level,vicinity,formatted_address,geometry,photos,types,business_status,opening_hours'
     });
+    
+    // Add specific filters for quick lunch searches
+    if (query.includes('fast casual') || query.includes('under 30 minutes') || query.includes('quick lunch')) {
+      // Search for fast-casual chains and quick service restaurants
+      params.set('query', `${q} fast casual OR quick service OR takeout`);
+    }
     
     if (price_range) {
       const priceLevels = {
@@ -330,6 +339,9 @@ async function searchGoogle(userIntent, userCoordinates = null) {
           distanceFormatted = formatDistance(distance);
         }
         
+        // Enhanced quick lunch detection
+        const isQuickLunch = detectQuickLunch(place, query);
+        
         return {
           ...place,
           price_category: getPriceCategory(place.price_level),
@@ -337,13 +349,31 @@ async function searchGoogle(userIntent, userCoordinates = null) {
           low_rating_reason: generateLowRatingReason(place),
           images: images,
           distance: distance,
-          distance_formatted: distanceFormatted
+          distance_formatted: distanceFormatted,
+          is_open_now: place.opening_hours?.open_now || false,
+          is_quick_lunch: isQuickLunch,
+          service_speed: getServiceSpeed(place),
+          avg_visit_duration: getAvgVisitDuration(place)
         };
       }));
 
-    // Sort results
+    // Sort results with enhanced logic for quick lunch
     results = results
       .sort((a, b) => {
+        // If searching for quick lunch, prioritize quick lunch places
+        if (query.toLowerCase().includes('quick') || query.toLowerCase().includes('fast casual')) {
+          if (a.is_quick_lunch && !b.is_quick_lunch) return -1;
+          if (!a.is_quick_lunch && b.is_quick_lunch) return 1;
+        }
+        
+        // If searching for cheap/budget, prioritize by price level
+        if (query.toLowerCase().includes('cheap') || query.toLowerCase().includes('budget')) {
+          const priceA = a.price_level || 4;
+          const priceB = b.price_level || 4;
+          if (priceA !== priceB) return priceA - priceB;
+        }
+        
+        // Default: sort by rating
         const scoreA = (a.rating || 0) - (a.rating_penalty || 0);
         const scoreB = (b.rating || 0) - (b.rating_penalty || 0);
         return scoreB - scoreA;
@@ -559,6 +589,97 @@ async function filterResults(userIntent, results) {
 }
 
 // Main handler
+// Enhanced quick lunch detection based on Google Places data
+function detectQuickLunch(place, query) {
+  const name = place.name?.toLowerCase() || '';
+  const types = place.types || [];
+  const priceLevel = place.price_level || 0;
+  
+  // Fast-casual chains and quick service indicators
+  const quickLunchChains = [
+    'subway', 'mcdonalds', 'burger king', 'kfc', 'pizza hut', 'dominos',
+    'chipotle', 'panera', 'qdoba', 'five guys', 'shake shack', 'in-n-out',
+    'wendys', 'taco bell', 'arby', 'jack in the box', 'white castle',
+    'jimmy johns', 'firehouse subs', 'potbelly', 'noodles & company'
+  ];
+  
+  // Google Places types that indicate quick service
+  const quickServiceTypes = [
+    'fast_food_restaurant', 'sandwich_shop', 'pizza_place', 'hamburger_restaurant',
+    'taco_restaurant', 'chicken_restaurant', 'seafood_restaurant', 'food_court'
+  ];
+  
+  // Check if it's a known quick lunch chain
+  const isKnownChain = quickLunchChains.some(chain => name.includes(chain));
+  
+  // Check if it has quick service types
+  const hasQuickServiceType = quickServiceTypes.some(type => types.includes(type));
+  
+  // Budget-friendly (price level 1-2) often indicates quicker service
+  const isBudgetFriendly = priceLevel <= 2;
+  
+  // If query specifically mentions quick lunch
+  const queryMentionsQuick = query.toLowerCase().includes('quick') || 
+                            query.toLowerCase().includes('fast casual') ||
+                            query.toLowerCase().includes('under 30 minutes');
+  
+  return isKnownChain || hasQuickServiceType || (isBudgetFriendly && queryMentionsQuick);
+}
+
+// Estimate service speed based on place characteristics
+function getServiceSpeed(place) {
+  const name = place.name?.toLowerCase() || '';
+  const types = place.types || [];
+  const priceLevel = place.price_level || 0;
+  
+  // Fast food chains = very fast
+  const fastFoodChains = ['mcdonalds', 'burger king', 'kfc', 'subway', 'taco bell'];
+  if (fastFoodChains.some(chain => name.includes(chain))) {
+    return 'very_fast'; // 5-15 minutes
+  }
+  
+  // Fast casual = fast
+  const fastCasualChains = ['chipotle', 'panera', 'five guys', 'shake shack'];
+  if (fastCasualChains.some(chain => name.includes(chain))) {
+    return 'fast'; // 15-30 minutes
+  }
+  
+  // Quick service types
+  if (types.includes('fast_food_restaurant') || types.includes('sandwich_shop')) {
+    return 'fast'; // 15-30 minutes
+  }
+  
+  // Budget places often faster
+  if (priceLevel <= 2) {
+    return 'moderate'; // 30-45 minutes
+  }
+  
+  return 'slow'; // 45+ minutes
+}
+
+// Estimate average visit duration based on place type
+function getAvgVisitDuration(place) {
+  const types = place.types || [];
+  const priceLevel = place.price_level || 0;
+  
+  // Fast food = quick visits
+  if (types.includes('fast_food_restaurant')) {
+    return '15-30 minutes';
+  }
+  
+  // Casual dining = moderate visits
+  if (types.includes('casual_dining') || priceLevel <= 2) {
+    return '30-60 minutes';
+  }
+  
+  // Fine dining = longer visits
+  if (priceLevel >= 4) {
+    return '60-120 minutes';
+  }
+  
+  return '30-60 minutes'; // default
+}
+
 module.exports = async (req, res) => {
   console.log("🚀 /recommend endpoint hit");
   console.log("📦 Request body:", req.body);
