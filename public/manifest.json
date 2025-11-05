@@ -29,6 +29,13 @@
       "description": "Quickly find food near you",
       "url": "/?action=find",
       "icons": [{ "src": "/food_finder_favicon.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Group Swipe",
+      "short_name": "Group",
+      "description": "Start a group swiping session",
+      "url": "/group.html",
+      "icons": [{ "src": "/food_finder_favicon.png", "sizes": "96x96" }]
     }
   ]
 }

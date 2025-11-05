@@ -2,6 +2,7 @@ const CACHE_NAME = 'food-finder-v1';
 const urlsToCache = [
   '/',
   '/index.html',
+  '/group.html',
   '/style.css',
   '/food_finder_favicon.png',
   '/manifest.json'

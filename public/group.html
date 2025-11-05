@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Group Swipe • Food Finder</title>
+  <meta name="theme-color" content="#ff6b6b" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/food_finder_favicon.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/food_finder_favicon.png" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-content">
+      <button class="filter-icon" onclick="window.location.href='/'" title="Back to Home">←</button>
+      <h1 class="header-title">Group Swipe</h1>
+      <div style="width:40px"></div>
+    </div>
+  </header>
+
+  <div class="container">
+    <section class="group-mode-hero">
+      <div class="group-mode-content">
+        <h2 class="group-mode-title">Can't Decide? Swipe Together! 💚</h2>
+        <p class="group-mode-description">Create a room, share the code, and swipe to find matches.</p>
+      </div>
+    </section>
+
+    <section style="padding: 0 1rem 2rem; max-width: 700px; margin: 0 auto;">
+      <div class="card" id="step-setup">
+        <h3>Create or Join</h3>
+        <div class="swipe-form">
+          <label>Group Size</label>
+          <div class="number-input-container">
+            <button onclick="decreaseSwipeGroupSize()" class="number-btn">−</button>
+            <input type="number" id="swipe-group-size" min="2" max="10" value="2" readonly>
+            <button onclick="increaseSwipeGroupSize()" class="number-btn">+</button>
+          </div>
+          <button onclick="createSwipeRoom()" class="modern-btn primary">Create Room</button>
+        </div>
+        <div class="swipe-form" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #e9ecef;">
+          <label>Or Join Existing Room</label>
+          <input type="text" id="join-room-code" placeholder="Enter room code" maxlength="6" style="text-transform: uppercase;">
+          <button onclick="joinSwipeRoom()" class="modern-btn secondary">Join Room</button>
+        </div>
+      </div>
+
+      <div class="card" id="step-waiting" style="display:none; text-align:center;">
+        <h3>Waiting for Players</h3>
+        <div class="room-code-display">
+          <p class="room-code-label">Room Code</p>
+          <p class="room-code" id="display-room-code">ABC123</p>
+          <button onclick="copyRoomCode()" class="modern-btn secondary small">Copy Code</button>
+        </div>
+        <p>Participants: <span id="participant-count">1</span>/<span id="max-participants">2</span></p>
+        <button onclick="startSwiping()" class="modern-btn primary" id="start-swipe-btn" style="display:none;">Start Swiping</button>
+      </div>
+
+      <div class="card" id="step-swiping" style="display:none;">
+        <div class="swipe-header" style="padding:0; border:none;">
+          <div class="swipe-progress"><span id="swipe-progress-text">0 / 0</span></div>
+        </div>
+        <div class="swipe-content-swipe">
+          <div class="swipe-stack" id="swipe-stack"></div>
+          <div class="swipe-actions">
+            <button onclick="swipePass()" class="swipe-btn pass-btn"><span>✕</span><span class="swipe-label">Pass</span></button>
+            <button onclick="swipeLike()" class="swipe-btn like-btn"><span>♥</span><span class="swipe-label">Like</span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="step-matches" style="display:none;">
+        <h3>🎉 Matches Found!</h3>
+        <div class="matches-list" id="matches-list"></div>
+        <div class="match-actions">
+          <button onclick="randomPickMatch()" class="modern-btn secondary">🎲 Random Pick</button>
+          <button onclick="startMatchVoting()" class="modern-btn primary">🗳️ Vote on Matches</button>
+          <button onclick="retrySwiping()" class="modern-btn tertiary">🔄 Get More Options</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // API base detection
+    const getApiBaseUrl = () => {
+      const port = window.location.port;
+      if (port && port !== '3000' && (port === '5502' || port.startsWith('55'))) {
+        return 'http://localhost:3000';
+      }
+      return '';
+    };
+    const API_BASE = getApiBaseUrl();
+
+    let userId = null;
+    function getUserId() {
+      if (!userId) {
+        userId = localStorage.getItem('foodFinderUserId');
+        if (!userId) {
+          userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          localStorage.setItem('foodFinderUserId', userId);
+        }
+      }
+      return userId;
+    }
+
+    // Minimal swipe state
+    let swipeData = {
+      roomCode: null,
+      groupSize: 2,
+      participants: [],
+      currentRestaurants: [],
+      currentIndex: 0,
+      swiped: []
+    };
+
+    function increaseSwipeGroupSize() {
+      const input = document.getElementById('swipe-group-size');
+      const value = parseInt(input.value) || 2;
+      if (value < 10) input.value = value + 1;
+    }
+    function decreaseSwipeGroupSize() {
+      const input = document.getElementById('swipe-group-size');
+      const value = parseInt(input.value) || 2;
+      if (value > 2) input.value = value - 1;
+    }
+
+    function showStep(idToShow) {
+      const steps = ['step-setup','step-waiting','step-swiping','step-matches'];
+      steps.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = (id === idToShow) ? 'block' : 'none';
+      });
+    }
+
+    function updateSwipeProgress() {
+      const total = swipeData.currentRestaurants.length;
+      const current = Math.min(swipeData.currentIndex, total);
+      const el = document.getElementById('swipe-progress-text');
+      if (el) el.textContent = `${current} / ${total}`;
+    }
+
+    function createSwipeCard(restaurant) {
+      const card = document.createElement('div');
+      card.className = 'swipe-card';
+      const bg = restaurant.images && restaurant.images[0] && restaurant.images[0].photo_reference
+        ? `${API_BASE}/api/photo?photo_reference=${restaurant.images[0].photo_reference}&maxwidth=800`
+        : (restaurant.images && restaurant.images[0] && restaurant.images[0].url) || '';
+      card.innerHTML = `
+        <div class="swipe-card-image" style="background-image:url('${bg}')">
+          ${restaurant.opening_hours && restaurant.opening_hours.open_now ? '<div class="open-badge">Open now</div>' : ''}
+        </div>
+        <div class="swipe-card-content">
+          <h3>${restaurant.name || 'Restaurant'}</h3>
+          <div class="swipe-card-rating"><span class="rating-stars">★</span> ${restaurant.rating || '—'} (${restaurant.user_ratings_total || 0})</div>
+          <p class="swipe-card-location">${restaurant.vicinity || restaurant.formatted_address || ''}</p>
+        </div>
+      `;
+      return card;
+    }
+
+    function renderSwipeCard() {
+      const stack = document.getElementById('swipe-stack');
+      if (!stack) return;
+      stack.innerHTML = '';
+      const r = swipeData.currentRestaurants[swipeData.currentIndex];
+      if (!r) return;
+      stack.appendChild(createSwipeCard(r));
+      updateSwipeProgress();
+    }
+
+    async function createSwipeRoom() {
+      try {
+        const groupSize = parseInt(document.getElementById('swipe-group-size').value) || 2;
+        swipeData.groupSize = groupSize;
+        const res = await fetch(`${API_BASE}/api/swipe/create-room`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupSize, userLocation: null, userCoordinates: null, filters: {} })
+        });
+        if (!res.ok) throw new Error('Create failed ' + res.status);
+        const data = await res.json();
+        swipeData.roomCode = data.roomCode;
+        document.getElementById('display-room-code').textContent = data.roomCode;
+        document.getElementById('max-participants').textContent = groupSize;
+        await joinSwipeRoomInternal(data.roomCode);
+        showStep('step-waiting');
+        pollForParticipants();
+      } catch (e) {
+        console.error(e);
+        alert('Failed to create room.');
+      }
+    }
+
+    async function joinSwipeRoom() {
+      const code = (document.getElementById('join-room-code').value || '').trim().toUpperCase();
+      if (!code) return;
+      await joinSwipeRoomInternal(code);
+      swipeData.roomCode = code;
+      document.getElementById('display-room-code').textContent = code;
+      showStep('step-waiting');
+      pollForParticipants();
+    }
+
+    async function joinSwipeRoomInternal(roomCode) {
+      const res = await fetch(`${API_BASE}/api/swipe/join-room`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomCode, userId: getUserId() })
+      });
+      if (!res.ok) throw new Error('Join failed ' + res.status);
+      const data = await res.json();
+      swipeData.participants = data.participants || [];
+      document.getElementById('participant-count').textContent = swipeData.participants.length;
+      document.getElementById('max-participants').textContent = data.maxParticipants || swipeData.groupSize;
+      const startBtn = document.getElementById('start-swipe-btn');
+      if (startBtn) startBtn.style.display = 'block';
+    }
+
+    async function pollForParticipants() {
+      try {
+        const res = await fetch(`${API_BASE}/api/swipe/check-matches`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.participants)) {
+            swipeData.participants = data.participants.map(p => p.userId || p);
+            document.getElementById('participant-count').textContent = swipeData.participants.length;
+          }
+        }
+      } catch {}
+      setTimeout(pollForParticipants, 3000);
+    }
+
+    async function startSwiping() {
+      try {
+        const res = await fetch(`${API_BASE}/api/swipe/get-restaurants`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode, userId: getUserId() })
+        });
+        if (!res.ok) throw new Error('Get restaurants failed ' + res.status);
+        const data = await res.json();
+        swipeData.currentRestaurants = data.restaurants || [];
+        swipeData.currentIndex = 0;
+        showStep('step-swiping');
+        renderSwipeCard();
+      } catch (e) {
+        console.error(e); alert('Failed to start swiping.');
+      }
+    }
+
+    async function recordSwipe(liked) {
+      const r = swipeData.currentRestaurants[swipeData.currentIndex];
+      if (!r) return;
+      try {
+        await fetch(`${API_BASE}/api/swipe/record-swipe`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode, userId: getUserId(), restaurantId: r.place_id || r.id, liked })
+        });
+      } catch {}
+    }
+
+    function swipeLike() {
+      recordSwipe(true);
+      swipeData.currentIndex++;
+      if (swipeData.currentIndex >= swipeData.currentRestaurants.length) {
+        checkSwipeMatches();
+      } else {
+        renderSwipeCard();
+      }
+    }
+    function swipePass() {
+      recordSwipe(false);
+      swipeData.currentIndex++;
+      if (swipeData.currentIndex >= swipeData.currentRestaurants.length) {
+        checkSwipeMatches();
+      } else {
+        renderSwipeCard();
+      }
+    }
+
+    async function checkSwipeMatches() {
+      try {
+        const res = await fetch(`${API_BASE}/api/swipe/check-matches`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode })
+        });
+        if (!res.ok) throw new Error('Check matches failed ' + res.status);
+        const data = await res.json();
+        if (Array.isArray(data.matches) && data.matches.length) {
+          showStep('step-matches');
+          showSwipeMatches(data.matches);
+        } else {
+          // no matches yet; show matches step with empty state
+          showStep('step-matches');
+          showSwipeMatches([]);
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Failed to check matches.');
+      }
+    }
+
+    function showSwipeMatches(matches) {
+      const list = document.getElementById('matches-list');
+      if (!list) return;
+      if (!matches || !matches.length) {
+        list.innerHTML = '<div class="no-matches">No matches yet. Try again to get more options.</div>';
+        return;
+      }
+      list.innerHTML = matches.map(match => {
+        const img = match.images && match.images[0] && match.images[0].photo_reference
+          ? `${API_BASE}/api/photo?photo_reference=${match.images[0].photo_reference}&maxwidth=800`
+          : (match.images && match.images[0] && match.images[0].url) || '';
+        return `
+          <div class="match-card">
+            <div class="match-card-image" style="background-image:url('${img}')"></div>
+            <div class="match-card-content">
+              <h3>${match.name || 'Restaurant'}</h3>
+              <div class="match-card-rating">★ ${match.rating || '—'} (${match.user_ratings_total || 0})</div>
+              <p>${match.vicinity || match.formatted_address || ''}</p>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function randomPickMatch() {
+      const list = document.getElementById('matches-list');
+      if (!list) return;
+      const cards = list.querySelectorAll('.match-card');
+      if (!cards.length) return alert('No matches to pick from');
+      const pick = cards[Math.floor(Math.random() * cards.length)];
+      cards.forEach(c => c.classList.remove('selected'));
+      pick.classList.add('selected');
+    }
+
+    async function retrySwiping() {
+      try {
+        const res = await fetch(`${API_BASE}/api/swipe/retry`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode })
+        });
+        if (!res.ok) throw new Error('Retry failed ' + res.status);
+        // After retry, fetch more restaurants again
+        await startSwiping();
+      } catch (e) {
+        console.error(e); alert('Failed to get more options.');
+      }
+    }
+
+    function copyRoomCode() {
+      const code = document.getElementById('display-room-code').textContent;
+      navigator.clipboard.writeText(code).then(() => alert('Copied room code'));
+    }
+  </script>
+</body>
+</html>
+
