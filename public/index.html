@@ -297,7 +297,7 @@
     </div>
     
     <!-- Tinder-Style Swiping Modal -->
-    <div class="swipe-modal-overlay" id="swipe-modal" style="display: none;" onclick="closeSwipeModalIfOverlay(event)">
+    <div class="swipe-modal-overlay" id="swipe-modal" onclick="closeSwipeModalIfOverlay(event)" style="display: none;">
       <div class="swipe-modal">
         <!-- Room Setup Step -->
         <div class="swipe-step" id="swipe-setup" style="display: block;">
@@ -2618,37 +2618,68 @@
     
     function openSwipeMode() {
       try {
+        console.log('openSwipeMode called');
+        
         // Ensure userId is set before opening
         swipeData.userId = getUserId();
+        console.log('UserId set:', swipeData.userId);
         
         // Show the modal first
         const modal = document.getElementById('swipe-modal');
+        console.log('Modal element:', modal);
+        
         if (!modal) {
           console.error('Swipe modal not found!');
           showToast('Unable to open swipe mode. Please refresh the page.', 'error');
           return;
         }
         
-        // Reset the modal state
+        // Reset the modal state first
         resetSwipeData();
+        console.log('Modal state reset');
         
-        // Show the modal with proper display
-        modal.style.display = 'flex';
-        modal.style.visibility = 'visible';
+        // Remove inline style and set display with !important using setAttribute
+        modal.removeAttribute('style');
+        modal.style.cssText = 'display: flex !important; visibility: visible !important; opacity: 1 !important; z-index: 1000 !important; position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;';
+        
+        // Ensure the modal content is also visible
+        const modalContent = modal.querySelector('.swipe-modal');
+        if (modalContent) {
+          modalContent.style.display = 'block';
+        }
         
         // Force a reflow to ensure display
         void modal.offsetHeight;
         
-        console.log('Swipe modal opened');
+        console.log('Swipe modal opened - display:', window.getComputedStyle(modal).display);
+        
+        // Check if modal is actually visible
+        const rect = modal.getBoundingClientRect();
+        const computedStyle = window.getComputedStyle(modal);
+        console.log('Modal computed display:', computedStyle.display);
+        console.log('Modal dimensions:', rect.width, 'x', rect.height);
+        console.log('Modal position:', rect.top, rect.left);
+        
+        if (computedStyle.display === 'none') {
+          console.error('Modal is still hidden after setting display!');
+          // Last resort - use a class-based approach
+          modal.classList.add('modal-visible');
+          modal.style.setProperty('display', 'flex', 'important');
+        }
       } catch (error) {
         console.error('Error opening swipe mode:', error);
-        showToast('Failed to open swipe mode. Please try again.', 'error');
+        console.error('Error stack:', error.stack);
+        showToast('Failed to open swipe mode: ' + error.message, 'error');
       }
     }
     
     function closeSwipeModal() {
-      document.getElementById('swipe-modal').style.display = 'none';
-      resetSwipeData();
+      const modal = document.getElementById('swipe-modal');
+      if (modal) {
+        modal.style.cssText = 'display: none !important;';
+        modal.classList.remove('modal-visible');
+        resetSwipeData();
+      }
     }
     
     function closeSwipeModalIfOverlay(event) {

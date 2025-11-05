@@ -3509,6 +3509,11 @@ details.reason.low-rating[open] {
   padding: 1rem;
 }
 
+.swipe-modal-overlay.modal-visible {
+  display: flex !important;
+  visibility: visible !important;
+}
+
 .swipe-modal {
   background: white;
   border-radius: 24px;
