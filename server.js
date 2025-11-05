@@ -561,20 +561,30 @@ async function searchGoogle(userIntent, userCoordinates = null) {
       searchQuery += ` ${dietary_restrictions.join(' ')}`;
     }
     
-    const q = `${searchQuery} near ${location}`;
+    // Use Nearby Search if coordinates are available (more accurate), otherwise Text Search
+    let baseUrl, params;
     
-    logger.info("Google Places API query:", q);
-    
-    const baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
-    
-    const params = new URLSearchParams({
-      query: q, // Query already includes location (e.g. "cafe in Bình Thạnh, Ho Chi Minh")
-      key: process.env.GOOGLE_MAPS_API_KEY
-      // REMOVED type: 'restaurant' - too restrictive, excludes cafes, bars, bakeries, etc.
-      // REMOVED fields parameter - doesn't work with textsearch, only with place details
-      // REMOVED location/radius - query parameter already includes full location context
-      // Text Search API returns geometry by default
-    });
+    if (userCoordinates && userCoordinates.lat && userCoordinates.lng) {
+      // Use Nearby Search API with coordinates - more accurate
+      baseUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
+      params = new URLSearchParams({
+        location: `${userCoordinates.lat},${userCoordinates.lng}`,
+        radius: Math.min(radius * 1000, 50000), // Max 50km, convert km to meters
+        keyword: searchQuery,
+        type: 'restaurant', // Use restaurant type for nearby search
+        key: process.env.GOOGLE_MAPS_API_KEY
+      });
+      logger.info("Using Nearby Search API with coordinates:", { lat: userCoordinates.lat, lng: userCoordinates.lng, radius: radius * 1000 });
+    } else {
+      // Fall back to Text Search with location string
+      const q = `${searchQuery} near ${location}`;
+      logger.info("Google Places API query:", q);
+      baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
+      params = new URLSearchParams({
+        query: q, // Query already includes location (e.g. "cafe in Bình Thạnh, Ho Chi Minh")
+        key: process.env.GOOGLE_MAPS_API_KEY
+      });
+    }
     
     const url = `${baseUrl}?${params}`;
     logger.info("Google Places API URL:", url);
