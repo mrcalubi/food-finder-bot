@@ -171,24 +171,43 @@
     // Geolocation → reverse geocode helper
     async function getCurrentLocation() {
       return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) return reject(new Error('Geolocation not supported'));
+        if (!navigator.geolocation) {
+          console.error('❌ Geolocation not supported by browser');
+          return reject(new Error('Geolocation not supported'));
+        }
+        
+        console.log('📍 Requesting geolocation...');
         navigator.geolocation.getCurrentPosition(async (pos) => {
           try {
             const { latitude, longitude } = pos.coords;
+            console.log('✅ GPS coordinates received:', { latitude, longitude });
             userCoordinates = { lat: latitude, lng: longitude };
+            
             // Reverse geocode via API
+            console.log('📍 Reverse geocoding coordinates...');
             const r = await fetch(`${API_BASE}/api/geocode?lat=${latitude}&lng=${longitude}`);
             if (r.ok) {
               const data = await r.json();
               userLocation = data.formatted_address || data.city || `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+              console.log('✅ Location resolved:', userLocation);
             } else {
               userLocation = `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+              console.warn('⚠️ Reverse geocode failed, using coordinates as location');
             }
+            console.log('✅ Final location data:', { userLocation, userCoordinates });
             resolve({ userLocation, userCoordinates });
           } catch (e) {
+            console.error('❌ Error processing location:', e);
             reject(e);
           }
-        }, (err) => reject(err), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+        }, (err) => {
+          console.error('❌ Geolocation error:', err.code, err.message);
+          reject(err);
+        }, { 
+          enableHighAccuracy: true, 
+          timeout: 15000, // Increased timeout
+          maximumAge: 0 // Don't use cached location
+        });
       });
     }
 
@@ -451,9 +470,9 @@
     }
 
     async function createSwipeRoom() {
-      // Ensure location is available
+      // Ensure location is available - ALWAYS try to get it
+      const statusEl = document.getElementById('location-text');
       if (!userLocation && !userCoordinates) {
-        const statusEl = document.getElementById('location-text');
         statusEl.textContent = '📍 Getting location...';
         statusEl.style.color = '#666';
         try {
@@ -461,10 +480,18 @@
           statusEl.textContent = `📍 ${userLocation || 'Location ready'}`;
           statusEl.style.color = '#4CAF50';
         } catch (e) {
+          console.error('❌ Failed to get location:', e);
           const proceed = confirm('Location not available. Continue anyway? (Results may be less relevant)');
           if (!proceed) return;
         }
       }
+
+      // Log what we're sending
+      console.log('🚀 Creating room with location data:', {
+        userLocation,
+        userCoordinates,
+        hasCoordinates: !!(userCoordinates && userCoordinates.lat && userCoordinates.lng)
+      });
 
       try {
         const btn = document.getElementById('create-room-btn');
@@ -481,9 +508,12 @@
           distance: groupFilters.distance
         };
         
+        const requestBody = { groupSize, userLocation, userCoordinates, filters };
+        console.log('📤 Sending create-room request:', requestBody);
+        
         const res = await fetch(`${API_BASE}/api/swipe/create-room`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ groupSize, userLocation, userCoordinates, filters })
+          body: JSON.stringify(requestBody)
         });
         if (!res.ok) throw new Error('Create failed ' + res.status);
         const data = await res.json();

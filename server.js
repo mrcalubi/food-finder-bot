@@ -578,12 +578,12 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     } else {
       // Fall back to Text Search with location string
       const q = `${searchQuery} near ${location}`;
-      logger.info("Google Places API query:", q);
+    logger.info("Google Places API query:", q);
       baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
       params = new URLSearchParams({
-        query: q, // Query already includes location (e.g. "cafe in Bình Thạnh, Ho Chi Minh")
-        key: process.env.GOOGLE_MAPS_API_KEY
-      });
+      query: q, // Query already includes location (e.g. "cafe in Bình Thạnh, Ho Chi Minh")
+      key: process.env.GOOGLE_MAPS_API_KEY
+    });
     }
     
     const url = `${baseUrl}?${params}`;
@@ -2261,6 +2261,13 @@ app.post('/api/swipe/create-room', generalLimiter, async (req, res) => {
   try {
     const { groupSize, filters, userLocation, userCoordinates } = req.body;
     
+    logger.info('📥 Creating swipe room:', {
+      groupSize,
+      userLocation,
+      userCoordinates,
+      hasCoordinates: !!(userCoordinates && userCoordinates.lat && userCoordinates.lng)
+    });
+    
     if (!groupSize || groupSize < 2) {
       return res.status(400).json({ error: 'Group size must be at least 2' });
     }
@@ -2275,13 +2282,16 @@ app.post('/api/swipe/create-room', generalLimiter, async (req, res) => {
     const attemptBonus = 5; // Each retry adds more options
     const poolSize = basePool + (groupSize * groupMultiplier);
     
-    // Store session
+    // Store session - ensure coordinates are properly stored
     const session = {
       roomCode,
       groupSize,
       filters: filters || {},
-      userLocation,
-      userCoordinates,
+      userLocation: userLocation || null,
+      userCoordinates: (userCoordinates && userCoordinates.lat && userCoordinates.lng) ? {
+        lat: parseFloat(userCoordinates.lat),
+        lng: parseFloat(userCoordinates.lng)
+      } : null,
       participants: [],
       swipes: {}, // userId -> { liked: [restaurantIds], passed: [restaurantIds] }
       attempts: 0,
@@ -2294,7 +2304,10 @@ app.post('/api/swipe/create-room', generalLimiter, async (req, res) => {
     
     swipingSessions.set(roomCode, session);
     
-    logger.info(`Created swiping room: ${roomCode} for ${groupSize} people`);
+    logger.info(`✅ Created swiping room: ${roomCode} for ${groupSize} people`, {
+      location: session.userLocation,
+      coordinates: session.userCoordinates
+    });
     
     res.json({
       roomCode,
@@ -2364,20 +2377,30 @@ app.post('/api/swipe/get-restaurants', generalLimiter, async (req, res) => {
         }
       }
       
-      // Determine location - prioritize coordinates, then userLocation, then try to reverse geocode
+      // Determine location - prioritize coordinates, then userLocation
       let searchLocation = session.userLocation;
       let searchCoordinates = session.userCoordinates;
       
+      logger.info(`🔍 Location data for room ${roomCode}:`, {
+        userLocation: session.userLocation,
+        userCoordinates: session.userCoordinates,
+        hasCoordinates: !!(searchCoordinates && searchCoordinates.lat && searchCoordinates.lng)
+      });
+      
       // If we have coordinates but no good location string, use coordinates
       if (searchCoordinates && searchCoordinates.lat && searchCoordinates.lng) {
-        // If location is null/undefined or 'current location', use coordinates directly
-        if (!searchLocation || searchLocation === 'current location') {
-          searchLocation = `${searchCoordinates.lat},${searchCoordinates.lng}`;
-        }
-      } else if (!searchLocation || searchLocation === 'current location') {
-        // No coordinates and no location - this is a problem, but we'll try anyway
-        logger.warn(`No location data for room ${roomCode}, using fallback`);
-        searchLocation = 'restaurant'; // Will search globally but that's not ideal
+        // Always use coordinates format when available - more reliable
+        searchLocation = `${searchCoordinates.lat},${searchCoordinates.lng}`;
+        logger.info(`✅ Using coordinates for search: ${searchLocation}`);
+      } else if (!searchLocation || searchLocation === 'current location' || searchLocation === 'null') {
+        // No coordinates and no location - this is a problem
+        logger.error(`❌ No valid location data for room ${roomCode}! Cannot search restaurants.`);
+        return res.status(400).json({ 
+          error: 'Location required. Please enable location services and try again.',
+          needsLocation: true
+        });
+      } else {
+        logger.info(`📍 Using location string: ${searchLocation}`);
       }
       
       const intent = {
@@ -2389,9 +2412,12 @@ app.post('/api/swipe/get-restaurants', generalLimiter, async (req, res) => {
         special_occasions: Array.isArray(session.filters.occasion) ? session.filters.occasion : (session.filters.occasion ? [session.filters.occasion] : [])
       };
       
-      logger.info(`Fetching restaurants for room ${roomCode}:`, {
-        location: searchLocation,
-        hasCoordinates: !!searchCoordinates,
+      logger.info(`🔍 Fetching restaurants for room ${roomCode}:`, {
+        searchLocation,
+        searchCoordinates,
+        hasCoordinates: !!(searchCoordinates && searchCoordinates.lat && searchCoordinates.lng),
+        intent: intent.search_term,
+        radius: intent.radius,
         filters: session.filters
       });
       
