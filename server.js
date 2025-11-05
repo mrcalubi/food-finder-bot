@@ -15,8 +15,16 @@ const __dirname = dirname(__filename);
 const app = express();
 app.use(express.json());
 
-// Serve static files from public directory
-app.use(express.static(join(__dirname, 'public')));
+// Serve static files from public directory with proper MIME types for PWA
+app.use(express.static(join(__dirname, 'public'), {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.json')) {
+      res.setHeader('Content-Type', 'application/json');
+    } else if (path.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    }
+  }
+}));
 
 // Configuration validation
 const validateConfig = () => {

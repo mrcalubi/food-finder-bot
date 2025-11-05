@@ -2617,9 +2617,33 @@
     };
     
     function openSwipeMode() {
-      document.getElementById('swipe-modal').style.display = 'flex';
-      swipeData.userId = getUserId();
-      resetSwipeData();
+      try {
+        // Ensure userId is set before opening
+        swipeData.userId = getUserId();
+        
+        // Show the modal first
+        const modal = document.getElementById('swipe-modal');
+        if (!modal) {
+          console.error('Swipe modal not found!');
+          showToast('Unable to open swipe mode. Please refresh the page.', 'error');
+          return;
+        }
+        
+        // Reset the modal state
+        resetSwipeData();
+        
+        // Show the modal with proper display
+        modal.style.display = 'flex';
+        modal.style.visibility = 'visible';
+        
+        // Force a reflow to ensure display
+        void modal.offsetHeight;
+        
+        console.log('Swipe modal opened');
+      } catch (error) {
+        console.error('Error opening swipe mode:', error);
+        showToast('Failed to open swipe mode. Please try again.', 'error');
+      }
     }
     
     function closeSwipeModal() {
@@ -2637,10 +2661,16 @@
       swipeData.currentRestaurants = [];
       swipeData.currentIndex = 0;
       swipeData.swiped = [];
-      document.getElementById('swipe-setup').style.display = 'block';
-      document.getElementById('swipe-waiting').style.display = 'none';
-      document.getElementById('swipe-active').style.display = 'none';
-      document.getElementById('swipe-matches').style.display = 'none';
+      // Reset all steps
+      const setup = document.getElementById('swipe-setup');
+      const waiting = document.getElementById('swipe-waiting');
+      const active = document.getElementById('swipe-active');
+      const matches = document.getElementById('swipe-matches');
+      
+      if (setup) setup.style.display = 'block';
+      if (waiting) waiting.style.display = 'none';
+      if (active) active.style.display = 'none';
+      if (matches) matches.style.display = 'none';
     }
     
     function increaseSwipeGroupSize() {
@@ -2656,6 +2686,11 @@
     }
     
     async function createSwipeRoom() {
+      // Ensure userId is set
+      if (!swipeData.userId) {
+        swipeData.userId = getUserId();
+      }
+      
       const groupSize = parseInt(document.getElementById('swipe-group-size').value) || 2;
       swipeData.groupSize = groupSize;
       
@@ -2667,6 +2702,14 @@
         distance: getSelectedDistance(),
         occasion: getSelectedOccasion()
       };
+      
+      // Show loading state
+      const createBtn = document.querySelector('button[onclick*="createSwipeRoom"]');
+      const originalText = createBtn?.textContent;
+      if (createBtn) {
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating...';
+      }
       
       try {
         const response = await fetch('/api/swipe/create-room', {
@@ -2680,7 +2723,13 @@
           })
         });
         
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
+        console.log('Room created:', data);
+        
         if (data.roomCode) {
           swipeData.roomCode = data.roomCode;
           document.getElementById('display-room-code').textContent = data.roomCode;
@@ -2695,10 +2744,18 @@
           
           // Start polling for other participants
           pollForParticipants();
+        } else {
+          throw new Error('No room code returned');
         }
       } catch (error) {
         console.error('Error creating room:', error);
         showToast('Failed to create room. Please try again.', 'error');
+      } finally {
+        // Restore button state
+        if (createBtn) {
+          createBtn.disabled = false;
+          if (originalText) createBtn.textContent = originalText;
+        }
       }
     }
     
