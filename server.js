@@ -447,7 +447,7 @@ async function fetchWithTimeout(url, options = {}, timeout = 5000) {
   }
 }
 
-// NEW: Dynamic rating threshold - allows excellent local gems that might have fewer reviews
+// Dynamic rating threshold - allows excellent local gems that might have fewer reviews
 function shouldIncludeRestaurant(place) {
   const rating = place.rating || 0;
   const reviews = place.user_ratings_total || 0;
@@ -595,12 +595,13 @@ async function searchGoogle(userIntent, userCoordinates = null) {
       return [];
     }
 
-    // Enhanced filtering with dynamic rating thresholds
+    // Enhanced filtering and ranking
     let filteredResults = data.results
       .filter(p => p.business_status !== "CLOSED_PERMANENTLY")
       .filter(p => {
-        // Dynamic rating threshold based on review count (allows excellent local gems with fewer reviews)
-        return shouldIncludeRestaurant(p);
+        // More flexible rating filter - only filter out very low rated places
+        if (p.rating && p.rating < 2.5) return false;
+        return true;
       });
 
     // Process places with distance calculation and images
@@ -639,28 +640,19 @@ async function searchGoogle(userIntent, userCoordinates = null) {
           distanceFormatted = formatDistance(distance);
           logger.info(`📏 Distance calculated for ${place.name}: ${distance}km (${distanceFormatted})`);
         } else {
-          logger.warn(`No geometry for ${place.name}, attempting Place Details API for coordinates`);
-          // FIXED: Always try Place Details API instead of random fallback
-          if (place.place_id) {
-            const details = await getPlaceDetails(place.place_id, 'geometry');
-            if (details && details.location) {
-              placeLocation = details.location;
-              distance = calculateDistance(
-                userCoordinates.latitude,
-                userCoordinates.longitude,
-                placeLocation.lat,
-                placeLocation.lng
-              );
-              distanceFormatted = formatDistance(distance);
-              logger.info(`✅ Got coordinates from Place Details for ${place.name}`);
-            }
-          }
-          
-          // Final fallback: if still no distance, set to null (will be sorted lower)
-          if (!distance) {
-            logger.warn(`⚠️ Could not determine distance for ${place.name}, will be sorted lower`);
-            distance = null;
-            distanceFormatted = 'Distance unknown';
+          logger.info(`No placeLocation for ${place.name}, using fallback distance estimation`);
+          // Fallback: estimate distance based on location name
+          // This is a simple heuristic - in production you'd want more sophisticated geocoding
+          const locationText = (place.vicinity || place.formatted_address || '').toLowerCase();
+          if (locationText.includes('quận 1') || locationText.includes('district 1')) {
+            distance = Math.random() * 2 + 0.5; // 0.5-2.5km
+            distanceFormatted = formatDistance(distance);
+          } else if (locationText.includes('quận 2') || locationText.includes('district 2')) {
+            distance = Math.random() * 3 + 2; // 2-5km
+            distanceFormatted = formatDistance(distance);
+          } else {
+            distance = Math.random() * 5 + 1; // 1-6km
+            distanceFormatted = formatDistance(distance);
           }
         }
         
@@ -761,226 +753,50 @@ async function searchGoogle(userIntent, userCoordinates = null) {
     // Remove duplicates before returning
     const uniqueResults = removeDuplicates(results);
     
-    // NEW: Enrich top 5 candidates with Place Details (reviews, editorial summary, etc.)
-    // This gives us better data for scoring and descriptions
-    const topCandidates = uniqueResults.slice(0, 5);
-    logger.info(`Enriching top ${topCandidates.length} candidates with Place Details...`);
-    
-    const enrichedResults = await Promise.all(
-      uniqueResults.map(async (result, index) => {
-        // Only enrich top 5 to save API calls
-        if (index < 5) {
-          try {
-            const enriched = await enrichWithPlaceDetails(result, userCoordinates);
-            return enriched;
-          } catch (error) {
-            logger.warn(`Failed to enrich ${result.name}:`, error.message);
-            return result; // Return original if enrichment fails
-          }
-        }
-        return result;
-      })
-    );
-    
-    logger.success(`Filtered to ${results.length} results, ${enrichedResults.length} unique after deduplication and enrichment`);
-    return enrichedResults;
+    logger.success(`Filtered to ${results.length} results, ${uniqueResults.length} unique after deduplication`);
+    return uniqueResults;
   } catch (err) {
     logger.error("Google API search error:", err);
     return [];
   }
 }
 
-// Enhanced scoring algorithm with personalization + open_now priority + trending signals
+// Enhanced scoring algorithm with personalization + open_now priority
 function calculateOverallScore(place, userIntent, userId = null) {
   let score = 0;
   
-  // CRITICAL: Open now status - 25% weight (slightly reduced to make room for new signals)
+  // CRITICAL: Open now status - 30% weight (MVP priority!)
+  // WHY: Users want places they can visit NOW, not just browse
   const isOpenNow = place.opening_hours?.open_now || place.open_now || false;
-  score += isOpenNow ? 2.5 : 0.0; // Major boost for open places
+  score += isOpenNow ? 3.0 : 0.0; // Major boost for open places
   
-  // Base rating (weighted by review count) - 18% weight (reduced to add new signals)
+  // Base rating (weighted by review count) - 20% weight
   const rating = place.rating || 0;
   const reviewCount = place.user_ratings_total || 0;
-  score += rating * Math.log(reviewCount + 1) * 0.18;
+  score += rating * Math.log(reviewCount + 1) * 0.2;
   
-  // NEW: Review recency boost - 12% weight (recent reviews weighted more heavily)
-  const recentReviewBoost = calculateRecentReviewBoost(place);
-  score += recentReviewBoost * 1.2;
+  // Distance factor - 20% weight (crucial for "near me")
+  score += (place.distance_score || 0.5) * 0.2;
   
-  // NEW: Trending signal - 10% weight (places with increasing review velocity)
-  const trendingBoost = calculateTrendingSignal(place);
-  score += trendingBoost * 1.0;
+  // Price match - 10% weight
+  score += calculatePriceMatch(place.price_level, userIntent.price_range) * 0.1;
   
-  // NEW: Time-of-day relevance - 8% weight (breakfast spots for morning, etc.)
-  const timeRelevance = calculateTimeRelevance(place, new Date(), userIntent);
-  score += timeRelevance * 0.8;
-  
-  // NEW: Current popularity signal - 5% weight (if busy/quiet data available)
-  const popularityBoost = calculateCurrentPopularityBoost(place);
-  score += popularityBoost * 0.5;
-  
-  // Distance factor - 15% weight (crucial for "near me", slightly reduced)
-  score += (place.distance_score || 0.5) * 1.5;
-  
-  // Price match - 8% weight (reduced)
-  score += calculatePriceMatch(place.price_level, userIntent.price_range) * 0.8;
-  
-  // Dietary match - 8% weight
-  score += calculateDietaryMatch(place, userIntent.dietary_restrictions) * 0.8;
+  // Dietary match - 10% weight
+  score += calculateDietaryMatch(place, userIntent.dietary_restrictions) * 0.1;
   
   // Cuisine match - 5% weight
-  score += calculateCuisineMatch(place, userIntent.search_term) * 0.5;
+  score += calculateCuisineMatch(place, userIntent.search_term) * 0.05;
   
   // Mood match - 3% weight
-  score += (place.mood_match || 0.5) * 0.3;
+  score += (place.mood_match || 0.5) * 0.03;
   
-  // Personalization score - INCREASED from 2% to 10% weight (much more important!)
+  // Personalization score - 2% weight
   if (userId) {
     const personalizationScore = calculatePersonalizationScore(place, userId);
-    score += personalizationScore * 1.0; // 10x increase!
+    score += personalizationScore * 0.02;
   }
   
   return score;
-}
-
-// NEW: Calculate review recency boost (recent reviews are more reliable)
-function calculateRecentReviewBoost(place) {
-  if (!place.reviews || !Array.isArray(place.reviews)) {
-    // Fallback: if we have user_ratings_total, assume some recent activity
-    const reviewCount = place.user_ratings_total || 0;
-    if (reviewCount > 100) return 0.7; // Well-established
-    if (reviewCount > 50) return 0.5;
-    return 0.3; // New or unknown
-  }
-  
-  const now = Date.now();
-  let recentCount = 0;
-  let veryRecentCount = 0;
-  
-  place.reviews.forEach(review => {
-    if (review.time) {
-      const reviewAge = now - (review.time * 1000); // Convert Unix timestamp
-      const daysAgo = reviewAge / (1000 * 60 * 60 * 24);
-      
-      if (daysAgo < 30) recentCount++; // Last 30 days
-      if (daysAgo < 7) veryRecentCount++; // Last week
-    }
-  });
-  
-  // Boost based on recent review activity
-  let boost = 0;
-  if (veryRecentCount >= 3) boost = 1.0; // Very active recently
-  else if (veryRecentCount >= 1) boost = 0.8;
-  else if (recentCount >= 5) boost = 0.7;
-  else if (recentCount >= 2) boost = 0.5;
-  else boost = 0.3;
-  
-  return boost;
-}
-
-// NEW: Calculate trending signal (places with increasing review velocity)
-function calculateTrendingSignal(place) {
-  if (!place.reviews || !Array.isArray(place.reviews) || place.reviews.length < 5) {
-    return 0.5; // Neutral if no data
-  }
-  
-  // Analyze review distribution over time
-  const now = Date.now();
-  const recent = place.reviews.filter(r => {
-    if (!r.time) return false;
-    const age = (now - (r.time * 1000)) / (1000 * 60 * 60 * 24);
-    return age < 60; // Last 60 days
-  });
-  
-  const older = place.reviews.filter(r => {
-    if (!r.time) return false;
-    const age = (now - (r.time * 1000)) / (1000 * 60 * 60 * 24);
-    return age >= 60 && age < 180; // 60-180 days ago
-  });
-  
-  // If more recent reviews than older reviews, it's trending up
-  if (recent.length > older.length * 1.5) return 1.0; // Strongly trending
-  if (recent.length > older.length * 1.2) return 0.8; // Trending
-  if (recent.length > older.length) return 0.6; // Slight trend
-  return 0.4; // Not trending
-}
-
-// NEW: Calculate time-of-day relevance
-function calculateTimeRelevance(place, currentTime, userIntent) {
-  const hour = currentTime.getHours();
-  const types = place.types || [];
-  const name = (place.name || '').toLowerCase();
-  
-  // Breakfast time (6am-10am)
-  if (hour >= 6 && hour < 10) {
-    const breakfastIndicators = ['cafe', 'bakery', 'breakfast', 'brunch', 'coffee'];
-    if (breakfastIndicators.some(ind => types.some(t => t.includes(ind)) || name.includes(ind))) {
-      return 1.0;
-    }
-  }
-  
-  // Lunch time (11am-2pm)
-  if (hour >= 11 && hour < 14) {
-    const lunchIndicators = ['restaurant', 'cafe', 'fast_food', 'food'];
-    if (lunchIndicators.some(ind => types.some(t => t.includes(ind)))) {
-      // Fast service is better for lunch
-      if (types.includes('fast_food_restaurant') || place.is_quick_lunch) {
-        return 1.0;
-      }
-      return 0.8;
-    }
-  }
-  
-  // Dinner time (5pm-9pm)
-  if (hour >= 17 && hour < 21) {
-    const dinnerIndicators = ['restaurant', 'fine_dining', 'bar'];
-    if (dinnerIndicators.some(ind => types.some(t => t.includes(ind)))) {
-      // Fine dining is better for dinner
-      if (types.includes('fine_dining')) {
-        return 1.0;
-      }
-      return 0.8;
-    }
-  }
-  
-  // Late night (9pm-2am)
-  if (hour >= 21 || hour < 2) {
-    const lateNightIndicators = ['bar', 'night_club', 'restaurant', 'food'];
-    if (lateNightIndicators.some(ind => types.some(t => t.includes(ind)))) {
-      return 0.9;
-    }
-  }
-  
-  return 0.6; // Neutral relevance
-}
-
-// NEW: Calculate current popularity boost (busy vs quiet)
-function calculateCurrentPopularityBoost(place) {
-  // If we have current_popularity from Google Places API
-  if (place.current_popularity !== undefined) {
-    // Google provides 0-100 scale
-    if (place.current_popularity > 75) return 0.3; // Very busy - slight negative
-    if (place.current_popularity > 50) return 0.7; // Moderately busy - good
-    if (place.current_popularity > 25) return 0.9; // Quiet - great time to go
-    return 1.0; // Very quiet - perfect
-  }
-  
-  // If we have popular_times data, use it
-  if (place.popular_times) {
-    const hour = new Date().getHours();
-    const dayOfWeek = new Date().getDay();
-    const popularTime = place.popular_times[dayOfWeek]?.[hour];
-    
-    if (popularTime !== undefined) {
-      // Popular times is typically 0-100 scale
-      if (popularTime > 75) return 0.3; // Peak time - might be too busy
-      if (popularTime > 50) return 0.7; // Busy but manageable
-      if (popularTime > 25) return 0.9; // Good time
-      return 1.0; // Quiet - best time
-    }
-  }
-  
-  return 0.5; // Neutral if no data
 }
 
 // Calculate personalization score based on user preferences
@@ -1259,160 +1075,23 @@ function formatDistance(distance) {
   }
 }
 
-// Enhanced place details with comprehensive data (reviews, popular times, etc.)
-async function getPlaceDetails(placeId, fields = null) {
+// Get place details with coordinates and photos
+async function getPlaceDetails(placeId) {
   try {
-    // Default fields if not specified
-    const defaultFields = [
-      'geometry',
-      'photos',
-      'reviews',
-      'opening_hours',
-      'editorial_summary',
-      'name',
-      'rating',
-      'user_ratings_total',
-      'price_level',
-      'types'
-    ];
-    
-    const fieldsToRequest = fields || defaultFields.join(',');
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fieldsToRequest}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    
-    const response = await fetchWithTimeout(url, {}, 5000);
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry,photos&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    const response = await fetch(url);
     const data = await response.json();
     
-    if (data.status === 'OK' && data.result) {
-      const result = data.result;
-      
-      // Extract review data with timestamps for recency analysis
-      const reviews = result.reviews?.map(review => ({
-        text: review.text,
-        rating: review.rating,
-        time: review.time, // Unix timestamp
-        author_name: review.author_name,
-        relative_time_description: review.relative_time_description
-      })) || [];
-      
+    if (data.status === 'OK' && data.result && data.result.geometry) {
       return {
-        location: result.geometry?.location,
-        photos: result.photos || [],
-        reviews: reviews.slice(0, 10), // Top 10 reviews
-        opening_hours: result.opening_hours,
-        editorial_summary: result.editorial_summary?.overview,
-        name: result.name,
-        rating: result.rating,
-        user_ratings_total: result.user_ratings_total,
-        price_level: result.price_level,
-        types: result.types,
-        // Note: popular_times and current_popularity require additional API access
-        // These may not be available in standard Places API
+        location: data.result.geometry.location,
+        photos: data.result.photos || []
       };
     }
     return null;
   } catch (error) {
     logger.error("Error getting place details:", error);
     return null;
-  }
-}
-
-// NEW: Analyze review sentiment to extract key insights
-async function analyzeReviewSentiment(reviews) {
-  if (!reviews || reviews.length === 0 || !openai) {
-    return null;
-  }
-  
-  try {
-    // Use AI to analyze review sentiment and extract key themes
-    const reviewTexts = reviews.slice(0, 10).map(r => r.text).join('\n\n');
-    
-    const completion = await Promise.race([
-      openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You are a food critic analyzing restaurant reviews. Extract key themes, strengths, and weaknesses."
-          },
-          {
-            role: "user",
-            content: `Analyze these restaurant reviews and extract:
-1. Top 3 strengths (e.g., "amazing pasta", "friendly service")
-2. Top 2 weaknesses (e.g., "slow service", "pricey")
-3. Best dishes mentioned
-4. Overall sentiment (positive/neutral/negative)
-5. Dietary-friendly mentions (vegetarian, vegan, gluten-free, etc.)
-
-Reviews:
-${reviewTexts}
-
-Return JSON:
-{
-  "strengths": ["strength1", "strength2", "strength3"],
-  "weaknesses": ["weakness1", "weakness2"],
-  "best_dishes": ["dish1", "dish2"],
-  "sentiment": "positive|neutral|negative",
-  "dietary_mentions": ["vegetarian", "vegan", etc.]
-}`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 300
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Review sentiment analysis timeout')), 5000)
-      )
-    ]);
-    
-    let content = completion.choices[0].message.content.trim();
-    content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) content = jsonMatch[0];
-    
-    return JSON.parse(content);
-  } catch (error) {
-    logger.warn(`Review sentiment analysis failed: ${error.message}`);
-    return null;
-  }
-}
-
-// NEW: Enrich restaurant with Place Details for top candidates
-async function enrichWithPlaceDetails(place, userCoordinates) {
-  // Only enrich if we have a place_id (saves API calls for non-Google results)
-  if (!place.place_id) return place;
-  
-  try {
-    const details = await getPlaceDetails(place.place_id);
-    if (!details) return place;
-    
-    // Analyze review sentiment if we have reviews
-    let reviewSentiment = null;
-    if (details.reviews && details.reviews.length > 0) {
-      reviewSentiment = await analyzeReviewSentiment(details.reviews);
-    }
-    
-    // Merge details into place object
-    return {
-      ...place,
-      // Update with latest data
-      reviews: details.reviews || place.reviews || [],
-      review_sentiment: reviewSentiment, // NEW: Sentiment analysis
-      editorial_summary: details.editorial_summary || place.editorial_summary,
-      // Ensure we have geometry for distance calculation
-      geometry: place.geometry || (details.location ? {
-        location: details.location
-      } : place.geometry),
-      // Merge photos (keep existing, add new)
-      photos: place.photos || details.photos || [],
-      // Update rating if we have more recent data
-      rating: details.rating || place.rating,
-      user_ratings_total: details.user_ratings_total || place.user_ratings_total,
-      // Add dietary mentions from reviews if not already detected
-      dietary_mentions: reviewSentiment?.dietary_mentions || place.dietary_mentions || []
-    };
-  } catch (error) {
-    logger.warn(`Failed to enrich ${place.name} with Place Details:`, error.message);
-    return place; // Return original if enrichment fails
   }
 }
 
@@ -1672,91 +1351,37 @@ async function searchMultipleSources(query, location, radius = 5000, userCoordin
   return results;
 }
 
-// Enhanced merge and deduplicate results from multiple sources with intelligent weighting
+// Merge and deduplicate results from multiple sources
 function mergeRestaurantData(sources) {
   const merged = new Map();
   
-  // Source reliability weights (Google is most reliable, Yelp second, etc.)
-  const sourceWeights = {
-    google: 1.0,
-    yelp: 0.85,
-    foursquare: 0.7,
-    tripadvisor: 0.75
-  };
-  
   // Process each source
   Object.entries(sources).forEach(([source, restaurants]) => {
-    const sourceWeight = sourceWeights[source] || 0.5;
-    
     restaurants.forEach(restaurant => {
-      // Use place_id for Google results (most reliable deduplication)
-      // Fallback to name+location for other sources
-      let key;
-      if (source === 'google' && restaurant.place_id) {
-        key = `place_id:${restaurant.place_id}`;
-      } else {
-        key = `${restaurant.name?.toLowerCase().trim()}_${restaurant.location?.toLowerCase().trim()}`;
-      }
+      const key = restaurant.name.toLowerCase().trim();
       
       if (merged.has(key)) {
-        // Merge with existing restaurant using weighted averages
+        // Merge with existing restaurant
         const existing = merged.get(key);
-        const existingWeight = existing.sources?.reduce((sum, s) => sum + (sourceWeights[s] || 0.5), 0) || 1.0;
-        const totalWeight = existingWeight + sourceWeight;
-        
-        // Calculate weighted average rating (not just max)
-        const existingRating = existing.rating || 0;
-        const existingReviews = existing.user_ratings_total || existing.review_count || 0;
-        const newRating = restaurant.rating || 0;
-        const newReviews = restaurant.user_ratings_total || restaurant.review_count || 0;
-        
-        // Weight ratings by review count and source reliability
-        const existingRatingWeight = existingReviews * (existingWeight / totalWeight);
-        const newRatingWeight = newReviews * (sourceWeight / totalWeight);
-        const totalRatingWeight = existingRatingWeight + newRatingWeight;
-        
-        let mergedRating = existingRating;
-        if (totalRatingWeight > 0) {
-          mergedRating = ((existingRating * existingRatingWeight) + (newRating * newRatingWeight)) / totalRatingWeight;
-        } else if (newRating > 0) {
-          mergedRating = newRating;
-        }
-        
-        // Combine review counts (cap at sum to avoid double-counting)
-        const mergedReviewCount = Math.max(
-          existingReviews,
-          newReviews,
-          Math.floor(existingReviews + newReviews * 0.3) // Add 30% of new reviews to account for overlap
-        );
-        
         merged.set(key, {
           ...existing,
           [source]: restaurant,
           sources: [...(existing.sources || []), source],
-          // Use weighted average rating instead of max
-          rating: mergedRating,
-          user_ratings_total: mergedReviewCount,
-          review_count: mergedReviewCount,
-          // Use Google coordinates if available (most accurate), otherwise use best available
+          // Use the best rating from all sources
+          rating: Math.max(existing.rating || 0, restaurant.rating || 0),
+          // Combine review counts
+          review_count: (existing.review_count || 0) + (restaurant.review_count || 0),
+          // Use Google coordinates if available, otherwise use others
           coordinates: existing.coordinates || restaurant.coordinates,
-          place_id: existing.place_id || restaurant.place_id, // Preserve Google place_id
-          // Combine categories from all sources
-          categories: [...new Set([...(existing.categories || []), ...(restaurant.categories || [])])],
-          types: [...new Set([...(existing.types || []), ...(restaurant.types || [])])],
-          // Combine images from all sources (prioritize Google, then Yelp, etc.)
-          images: mergeImages(existing.images || [], restaurant.images || [], source === 'google'),
-          // Keep best price information (Google most reliable)
-          price_level: existing.price_level || restaurant.price_level,
-          // Merge review data if available
-          reviews: (existing.reviews || []).concat(restaurant.reviews || []).slice(0, 10) // Top 10 reviews
+          // Combine categories
+          categories: [...new Set([...(existing.categories || []), ...(restaurant.categories || [])])]
         });
       } else {
         // New restaurant
         merged.set(key, {
           ...restaurant,
           sources: [source],
-          [source]: restaurant,
-          review_count: restaurant.user_ratings_total || restaurant.review_count || 0
+          [source]: restaurant
         });
       }
     });
@@ -1765,92 +1390,28 @@ function mergeRestaurantData(sources) {
   return Array.from(merged.values());
 }
 
-// Helper: Merge images from multiple sources, prioritizing higher quality sources
-function mergeImages(existingImages, newImages, isGoogle) {
-  const merged = [];
-  const seen = new Set();
-  
-  // Add Google images first (highest priority)
-  if (isGoogle) {
-    newImages.forEach(img => {
-      if (!seen.has(img.url)) {
-        merged.push(img);
-        seen.add(img.url);
-      }
-    });
-    // Then add existing images
-    existingImages.forEach(img => {
-      if (!seen.has(img.url)) {
-        merged.push(img);
-        seen.add(img.url);
-      }
-    });
-  } else {
-    // Add existing images first
-    existingImages.forEach(img => {
-      if (!seen.has(img.url)) {
-        merged.push(img);
-        seen.add(img.url);
-      }
-    });
-    // Then add new images
-    newImages.forEach(img => {
-      if (!seen.has(img.url)) {
-        merged.push(img);
-        seen.add(img.url);
-      }
-    });
-  }
-  
-  return merged.slice(0, 10); // Limit to 10 images
-}
 
-
-// Enhanced dietary options checking with review sentiment analysis
+// Helper functions
 function checkDietaryOptions(place, restrictions) {
   if (!restrictions || restrictions.length === 0) return "Standard options available";
   
   const placeText = `${place.name} ${place.types?.join(' ') || ''}`.toLowerCase();
+  
   const indicators = [];
-  
-  // Check review sentiment for dietary mentions (NEW!)
-  const reviewDietary = place.review_sentiment?.dietary_mentions || [];
-  const reviewTexts = (place.reviews || []).map(r => (r.text || '').toLowerCase()).join(' ');
-  
   restrictions.forEach(restriction => {
     const restrictionLower = restriction.toLowerCase();
-    
-    // Method 1: Check review sentiment analysis (most accurate)
-    if (reviewDietary.some(mention => mention.toLowerCase().includes(restrictionLower))) {
-      const label = restriction.charAt(0).toUpperCase() + restriction.slice(1);
-      indicators.push(`${label} options (mentioned in reviews)`);
-      return;
-    }
-    
-    // Method 2: Check review texts for mentions
-    if (reviewTexts.includes(restrictionLower) || 
-        (restrictionLower.includes('vegetarian') && (reviewTexts.includes('vegetarian') || reviewTexts.includes('veggie'))) ||
-        (restrictionLower.includes('vegan') && reviewTexts.includes('vegan')) ||
-        (restrictionLower.includes('halal') && reviewTexts.includes('halal')) ||
-        (restrictionLower.includes('gluten') && reviewTexts.includes('gluten-free'))) {
-      const label = restriction.charAt(0).toUpperCase() + restriction.slice(1);
-      indicators.push(`${label} options (mentioned in reviews)`);
-      return;
-    }
-    
-    // Method 3: Traditional text matching (fallback)
     if (restrictionLower.includes('vegetarian') && placeText.includes('vegetarian')) {
       indicators.push('Vegetarian options');
-    } else if (restrictionLower.includes('vegan') && placeText.includes('vegan')) {
+    }
+    if (restrictionLower.includes('vegan') && placeText.includes('vegan')) {
       indicators.push('Vegan options');
-    } else if (restrictionLower.includes('halal') && placeText.includes('halal')) {
+    }
+    if (restrictionLower.includes('halal') && placeText.includes('halal')) {
       indicators.push('Halal certified');
-    } else if (restrictionLower.includes('gluten') && (placeText.includes('gluten-free') || placeText.includes('gluten free'))) {
-      indicators.push('Gluten-free options');
     }
   });
   
-  return indicators.length > 0 ? indicators.join(', ') : 'Standard options available (check with restaurant)';
+  return indicators.length > 0 ? indicators.join(', ') : 'Standard options available';
 }
 
 function getPriceCategory(priceLevel) {
@@ -2667,6 +2228,324 @@ if (!isProduction) {
     logger.info(`OpenAI key present: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`);
     logger.info(`Google Maps key present: ${process.env.GOOGLE_MAPS_API_KEY ? 'Yes' : 'No'}`);
   });
+}
+
+// Tinder-style Swiping Session Management
+const swipingSessions = new NodeCache({
+  stdTTL: 30 * 60,  // 30 minutes TTL
+  maxKeys: 1000,
+  checkperiod: 600,
+  useClones: false
+});
+
+// Create or join a swiping session
+app.post('/api/swipe/create-room', generalLimiter, async (req, res) => {
+  try {
+    const { groupSize, filters, userLocation, userCoordinates } = req.body;
+    
+    if (!groupSize || groupSize < 2) {
+      return res.status(400).json({ error: 'Group size must be at least 2' });
+    }
+    
+    // Generate room code
+    const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    
+    // Calculate pool size based on group size and attempts (starts at 0)
+    // Formula: base pool + (groupSize * multiplier) + (attempts * bonus)
+    const basePool = 10;
+    const groupMultiplier = 3; // More people = more options needed
+    const attemptBonus = 5; // Each retry adds more options
+    const poolSize = basePool + (groupSize * groupMultiplier);
+    
+    // Store session
+    const session = {
+      roomCode,
+      groupSize,
+      filters: filters || {},
+      userLocation,
+      userCoordinates,
+      participants: [],
+      swipes: {}, // userId -> { liked: [restaurantIds], passed: [restaurantIds] }
+      attempts: 0,
+      poolSize,
+      restaurants: [],
+      matches: [],
+      status: 'waiting', // waiting, swiping, completed
+      createdAt: new Date()
+    };
+    
+    swipingSessions.set(roomCode, session);
+    
+    logger.info(`Created swiping room: ${roomCode} for ${groupSize} people`);
+    
+    res.json({
+      roomCode,
+      poolSize,
+      status: 'created'
+    });
+  } catch (error) {
+    logger.error('Error creating room:', error);
+    res.status(500).json({ error: 'Failed to create room' });
+  }
+});
+
+// Join a swiping session
+app.post('/api/swipe/join-room', generalLimiter, async (req, res) => {
+  try {
+    const { roomCode, userId } = req.body;
+    
+    const session = swipingSessions.get(roomCode);
+    if (!session) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    if (session.status !== 'waiting') {
+      return res.status(400).json({ error: 'Room is no longer accepting participants' });
+    }
+    
+    // Add participant if not already in
+    if (!session.participants.includes(userId)) {
+      session.participants.push(userId);
+      session.swipes[userId] = { liked: [], passed: [] };
+    }
+    
+    swipingSessions.set(roomCode, session);
+    
+    res.json({
+      roomCode,
+      groupSize: session.groupSize,
+      currentParticipants: session.participants.length,
+      filters: session.filters,
+      status: session.status
+    });
+  } catch (error) {
+    logger.error('Error joining room:', error);
+    res.status(500).json({ error: 'Failed to join room' });
+  }
+});
+
+// Get restaurants for swiping (with randomized order per user)
+app.post('/api/swipe/get-restaurants', generalLimiter, async (req, res) => {
+  try {
+    const { roomCode, userId } = req.body;
+    
+    const session = swipingSessions.get(roomCode);
+    if (!session) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    // If restaurants not loaded yet, fetch them
+    if (session.restaurants.length === 0) {
+      const intent = {
+        search_term: session.filters.cuisine || 'restaurant',
+        location: session.userLocation || 'current location',
+        radius: session.filters.distance || 5,
+        price_range: session.filters.price_range || 'moderate',
+        dietary_restrictions: session.filters.dietary || [],
+        special_occasions: session.filters.occasion || []
+      };
+      
+      // Fetch more restaurants than needed for pool
+      // Note: searchMultipleSources returns an object with source keys, not a flat array
+      const allResults = await searchMultipleSources(
+        intent.search_term || 'restaurant',
+        session.userLocation || 'current location',
+        (intent.radius || 5) * 1000,
+        session.userCoordinates
+      );
+      
+      const mergedResults = mergeRestaurantData(allResults);
+      
+      // Filter and sort results
+      const filteredResults = mergedResults
+        .filter(r => shouldIncludeRestaurant(r))
+        .sort((a, b) => {
+          const scoreA = calculateOverallScore(a, intent, userId);
+          const scoreB = calculateOverallScore(b, intent, userId);
+          return scoreB - scoreA;
+        });
+      
+      // Take pool size
+      session.restaurants = filteredResults.slice(0, session.poolSize);
+      session.status = 'swiping';
+      swipingSessions.set(roomCode, session);
+    }
+    
+    // Create user-specific randomized order
+    const userSeed = `${roomCode}_${userId}_${session.attempts}`;
+    const shuffled = shuffleArray([...session.restaurants], userSeed);
+    
+    // Filter out already swiped restaurants
+    const userSwipes = session.swipes[userId] || { liked: [], passed: [] };
+    const swipedIds = new Set([...userSwipes.liked, ...userSwipes.passed]);
+    const available = shuffled.filter(r => !swipedIds.has(r.place_id));
+    
+    res.json({
+      restaurants: available,
+      totalInPool: session.restaurants.length,
+      swipedCount: userSwipes.liked.length + userSwipes.passed.length,
+      remaining: available.length
+    });
+  } catch (error) {
+    logger.error('Error getting restaurants:', error);
+    res.status(500).json({ error: 'Failed to get restaurants' });
+  }
+});
+
+// Record a swipe
+app.post('/api/swipe/record-swipe', generalLimiter, async (req, res) => {
+  try {
+    const { roomCode, userId, restaurantId, action } = req.body; // action: 'like' or 'pass'
+    
+    if (!['like', 'pass'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+    
+    const session = swipingSessions.get(roomCode);
+    if (!session) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    if (!session.swipes[userId]) {
+      session.swipes[userId] = { liked: [], passed: [] };
+    }
+    
+    // Record swipe
+    if (action === 'like' && !session.swipes[userId].liked.includes(restaurantId)) {
+      session.swipes[userId].liked.push(restaurantId);
+    } else if (action === 'pass' && !session.swipes[userId].passed.includes(restaurantId)) {
+      session.swipes[userId].passed.push(restaurantId);
+    }
+    
+    swipingSessions.set(roomCode, session);
+    
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error recording swipe:', error);
+    res.status(500).json({ error: 'Failed to record swipe' });
+  }
+});
+
+// Check for matches and get session status
+app.post('/api/swipe/check-matches', generalLimiter, async (req, res) => {
+  try {
+    const { roomCode } = req.body;
+    
+    const session = swipingSessions.get(roomCode);
+    if (!session) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    // Check if all participants have finished swiping
+    const allFinished = session.participants.every(userId => {
+      const swipes = session.swipes[userId] || { liked: [], passed: [] };
+      const totalSwipes = swipes.liked.length + swipes.passed.length;
+      return totalSwipes >= session.poolSize;
+    });
+    
+    // Find matches (restaurants liked by ALL participants)
+    const matches = [];
+    if (session.participants.length > 0) {
+      const firstUserLikes = new Set(session.swipes[session.participants[0]]?.liked || []);
+      
+      // Find restaurants liked by ALL users
+      for (const restaurantId of firstUserLikes) {
+        const allLiked = session.participants.every(userId => {
+          const likes = session.swipes[userId]?.liked || [];
+          return likes.includes(restaurantId);
+        });
+        
+        if (allLiked) {
+          const restaurant = session.restaurants.find(r => r.place_id === restaurantId);
+          if (restaurant) {
+            matches.push(restaurant);
+          }
+        }
+      }
+    }
+    
+    // Get match data with restaurant details
+    const matchData = matches.map(match => {
+      const restaurant = session.restaurants.find(r => r.place_id === match.place_id || r.place_id === match);
+      return restaurant || match;
+    }).filter(Boolean);
+    
+    session.matches = matchData;
+    session.status = allFinished ? 'completed' : 'swiping';
+    swipingSessions.set(roomCode, session);
+    
+    res.json({
+      status: session.status,
+      matches: matchData,
+      allFinished,
+      participants: session.participants.map(userId => ({
+        userId,
+        swipedCount: (session.swipes[userId]?.liked.length || 0) + (session.swipes[userId]?.passed.length || 0),
+        likedCount: session.swipes[userId]?.liked.length || 0
+      }))
+    });
+  } catch (error) {
+    logger.error('Error checking matches:', error);
+    res.status(500).json({ error: 'Failed to check matches' });
+  }
+});
+
+// Retry with larger pool (increment attempt counter and fetch more restaurants)
+app.post('/api/swipe/retry', generalLimiter, async (req, res) => {
+  try {
+    const { roomCode } = req.body;
+    
+    const session = swipingSessions.get(roomCode);
+    if (!session) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    // Increment attempts and increase pool size
+    session.attempts += 1;
+    const attemptBonus = 5;
+    session.poolSize += attemptBonus;
+    
+    // Clear previous restaurants and swipes (keep matches)
+    session.restaurants = [];
+    session.status = 'waiting';
+    // Keep swipes for history, but clear for new round
+    // session.swipes = {};
+    
+    swipingSessions.set(roomCode, session);
+    
+    res.json({
+      poolSize: session.poolSize,
+      attempts: session.attempts
+    });
+  } catch (error) {
+    logger.error('Error retrying:', error);
+    res.status(500).json({ error: 'Failed to retry' });
+  }
+});
+
+// Helper function to shuffle array with seed
+function shuffleArray(array, seed) {
+  // Use seed for deterministic shuffle
+  let currentSeed = seed ? hashString(seed) : Math.random();
+  const shuffled = [...array];
+  
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    currentSeed = (currentSeed * 9301 + 49297) % 233280;
+    const j = Math.floor((currentSeed / 233280) * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  
+  return shuffled;
+}
+
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
 }
 
 export default app;

@@ -4,7 +4,14 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Food Finder</title>
+  <meta name="description" content="AI-powered food recommendation bot that finds the perfect restaurants based on your preferences"/>
+  <meta name="theme-color" content="#ff6b6b"/>
+  
+  <!-- PWA Support -->
+  <link rel="manifest" href="/manifest.json"/>
   <link rel="icon" type="image/png" href="/food_finder_favicon.png"/>
+  <link rel="apple-touch-icon" href="/food_finder_favicon.png"/>
+  
   <link rel="stylesheet" href="style.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,19 +23,27 @@
     <div class="header-content">
       <div class="logo">🍴</div>
       <h1 class="header-title">Find food near me</h1>
-      <button class="filter-icon" onclick="openFilterModal()">⚙️</button>
+      <div class="header-actions">
+        <button class="group-mode-toggle" onclick="toggleGroupMode()" id="group-mode-toggle" title="Can't decide? Swipe together!">
+          <span class="toggle-icon">💚</span>
+          <span class="toggle-label">Group Mode</span>
+        </button>
+        <button class="filter-icon" onclick="openFilterModal()">⚙️</button>
+      </div>
     </div>
   </header>
 
   <div class="container">
-    <!-- Main CTA Section -->
-    <section class="hero-section">
-      <button onclick="getRecommendations()" class="main-cta">
-        <span class="cta-text">Find me something to eat</span>
-        <span class="cta-icon">🍽️</span>
-      </button>
-      <p class="cta-subtitle">or <a href="#" onclick="openFilterModal()" class="filter-link">add more details</a></p>
-    </section>
+    <!-- Main Page View (Default) -->
+    <div id="main-page-view">
+      <!-- Main CTA Section -->
+      <section class="hero-section">
+        <button onclick="getRecommendations()" class="main-cta">
+          <span class="cta-text">Find me something to eat</span>
+          <span class="cta-icon">🍽️</span>
+        </button>
+        <p class="cta-subtitle">or <a href="#" onclick="openFilterModal()" class="filter-link">add more details</a></p>
+      </section>
 
     <!-- Quick Chips -->
     <section class="quick-chips">
@@ -281,6 +296,98 @@
       <span class="arrow">↓</span>
     </div>
     
+    <!-- Tinder-Style Swiping Modal -->
+    <div class="swipe-modal-overlay" id="swipe-modal" style="display: none;" onclick="closeSwipeModalIfOverlay(event)">
+      <div class="swipe-modal">
+        <!-- Room Setup Step -->
+        <div class="swipe-step" id="swipe-setup" style="display: block;">
+          <div class="swipe-header">
+            <h2>💚 Group Swipe Mode</h2>
+            <button onclick="closeSwipeModal()" class="close-btn">×</button>
+          </div>
+          <div class="swipe-content">
+            <div class="swipe-info">
+              <p>Sync up with friends and swipe through restaurants together. When everyone likes the same place, it's a match!</p>
+            </div>
+            <div class="swipe-form">
+              <label>Group Size</label>
+              <div class="number-input-container">
+                <button onclick="decreaseSwipeGroupSize()" class="number-btn">−</button>
+                <input type="number" id="swipe-group-size" min="2" max="10" value="2" readonly>
+                <button onclick="increaseSwipeGroupSize()" class="number-btn">+</button>
+              </div>
+              <button onclick="createSwipeRoom()" class="modern-btn primary">Create Room</button>
+            </div>
+            <div class="swipe-form" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #e9ecef;">
+              <label>Or Join Existing Room</label>
+              <input type="text" id="join-room-code" placeholder="Enter room code" maxlength="6" style="text-transform: uppercase;">
+              <button onclick="joinSwipeRoom()" class="modern-btn secondary">Join Room</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Waiting for Players Step -->
+        <div class="swipe-step" id="swipe-waiting" style="display: none;">
+          <div class="swipe-header">
+            <h2>Waiting for Players</h2>
+          </div>
+          <div class="swipe-content">
+            <div class="room-code-display">
+              <p class="room-code-label">Room Code</p>
+              <p class="room-code" id="display-room-code">ABC123</p>
+              <button onclick="copyRoomCode()" class="modern-btn secondary small">Copy Code</button>
+            </div>
+            <div class="participants-list">
+              <p>Participants: <span id="participant-count">1</span>/<span id="max-participants">2</span></p>
+            </div>
+            <button onclick="startSwiping()" class="modern-btn primary" id="start-swipe-btn" style="display: none;">Start Swiping</button>
+          </div>
+        </div>
+        
+        <!-- Swiping Step -->
+        <div class="swipe-step" id="swipe-active" style="display: none;">
+          <div class="swipe-header">
+            <div class="swipe-progress">
+              <span id="swipe-progress-text">0 / 0</span>
+            </div>
+            <button onclick="closeSwipeModal()" class="close-btn">×</button>
+          </div>
+          <div class="swipe-content-swipe">
+            <div class="swipe-stack" id="swipe-stack">
+              <!-- Restaurant cards will be inserted here -->
+            </div>
+            <div class="swipe-actions">
+              <button onclick="swipePass()" class="swipe-btn pass-btn">
+                <span>✕</span>
+                <span class="swipe-label">Pass</span>
+              </button>
+              <button onclick="swipeLike()" class="swipe-btn like-btn">
+                <span>♥</span>
+                <span class="swipe-label">Like</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Matches Step -->
+        <div class="swipe-step" id="swipe-matches" style="display: none;">
+          <div class="swipe-header">
+            <h2>🎉 Matches Found!</h2>
+          </div>
+          <div class="swipe-content">
+            <div class="matches-list" id="matches-list">
+              <!-- Matched restaurants will be shown here -->
+            </div>
+            <div class="match-actions">
+              <button onclick="randomPickMatch()" class="modern-btn secondary">🎲 Random Pick</button>
+              <button onclick="startMatchVoting()" class="modern-btn primary">🗳️ Vote on Matches</button>
+              <button onclick="retrySwiping()" class="modern-btn tertiary">🔄 Get More Options</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <!-- Modern Group Voting Modal -->
     <div class="group-voting-overlay" id="group-voting" style="display: none;" onclick="closeGroupVotingIfOverlay(event)">
       <div class="group-voting-modal">
@@ -391,6 +498,39 @@
     
     <div id="intent-box"></div>
     <div id="output"></div>
+    </div>
+    
+    <!-- Group Mode View -->
+    <div id="group-mode-view" style="display: none;">
+      <section class="group-mode-hero">
+        <div class="group-mode-content">
+          <h2 class="group-mode-title">Can't Decide? Swipe Together! 💚</h2>
+          <p class="group-mode-description">Sync up with friends and discover restaurants you all love</p>
+          <button onclick="openSwipeMode()" class="group-mode-cta">
+            <span class="cta-icon">💚</span>
+            <span class="cta-text">Start Group Swiping</span>
+          </button>
+        </div>
+        
+        <div class="group-mode-features">
+          <div class="feature-card">
+            <div class="feature-icon">🎯</div>
+            <h3>Find Matches</h3>
+            <p>See which restaurants everyone likes</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🎲</div>
+            <h3>Quick Decisions</h3>
+            <p>Pick randomly or vote together</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">👥</div>
+            <h3>2-10 People</h3>
+            <p>Perfect for groups of any size</p>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script>
@@ -2442,6 +2582,519 @@
       smoothScrollToResults();
       return result;
     };
+
+    // Toggle between main page and group mode
+    let isGroupMode = false;
+    
+    function toggleGroupMode() {
+      isGroupMode = !isGroupMode;
+      const mainView = document.getElementById('main-page-view');
+      const groupView = document.getElementById('group-mode-view');
+      const toggleBtn = document.getElementById('group-mode-toggle');
+      
+      if (isGroupMode) {
+        mainView.style.display = 'none';
+        groupView.style.display = 'block';
+        toggleBtn.classList.add('active');
+        toggleBtn.querySelector('.toggle-label').textContent = 'Solo Mode';
+      } else {
+        mainView.style.display = 'block';
+        groupView.style.display = 'none';
+        toggleBtn.classList.remove('active');
+        toggleBtn.querySelector('.toggle-label').textContent = 'Group Mode';
+      }
+    }
+
+    // Tinder-Style Swiping Functions
+    let swipeData = {
+      roomCode: null,
+      userId: null,
+      currentRestaurants: [],
+      currentIndex: 0,
+      swiped: [],
+      groupSize: 2,
+      filters: {}
+    };
+    
+    function openSwipeMode() {
+      document.getElementById('swipe-modal').style.display = 'flex';
+      swipeData.userId = getUserId();
+      resetSwipeData();
+    }
+    
+    function closeSwipeModal() {
+      document.getElementById('swipe-modal').style.display = 'none';
+      resetSwipeData();
+    }
+    
+    function closeSwipeModalIfOverlay(event) {
+      if (event.target.classList.contains('swipe-modal-overlay')) {
+        closeSwipeModal();
+      }
+    }
+    
+    function resetSwipeData() {
+      swipeData.currentRestaurants = [];
+      swipeData.currentIndex = 0;
+      swipeData.swiped = [];
+      document.getElementById('swipe-setup').style.display = 'block';
+      document.getElementById('swipe-waiting').style.display = 'none';
+      document.getElementById('swipe-active').style.display = 'none';
+      document.getElementById('swipe-matches').style.display = 'none';
+    }
+    
+    function increaseSwipeGroupSize() {
+      const input = document.getElementById('swipe-group-size');
+      const value = parseInt(input.value) || 2;
+      if (value < 10) input.value = value + 1;
+    }
+    
+    function decreaseSwipeGroupSize() {
+      const input = document.getElementById('swipe-group-size');
+      const value = parseInt(input.value) || 2;
+      if (value > 2) input.value = value - 1;
+    }
+    
+    async function createSwipeRoom() {
+      const groupSize = parseInt(document.getElementById('swipe-group-size').value) || 2;
+      swipeData.groupSize = groupSize;
+      
+      // Get current filters
+      const filters = {
+        cuisine: getSelectedCuisines(),
+        dietary: getSelectedDietary(),
+        price_range: getSelectedPriceRange(),
+        distance: getSelectedDistance(),
+        occasion: getSelectedOccasion()
+      };
+      
+      try {
+        const response = await fetch('/api/swipe/create-room', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupSize,
+            filters,
+            userLocation: userLocation,
+            userCoordinates: userCoordinates
+          })
+        });
+        
+        const data = await response.json();
+        if (data.roomCode) {
+          swipeData.roomCode = data.roomCode;
+          document.getElementById('display-room-code').textContent = data.roomCode;
+          document.getElementById('max-participants').textContent = groupSize;
+          
+          // Join the room as creator
+          await joinSwipeRoomInternal(data.roomCode);
+          
+          // Show waiting screen
+          document.getElementById('swipe-setup').style.display = 'none';
+          document.getElementById('swipe-waiting').style.display = 'block';
+          
+          // Start polling for other participants
+          pollForParticipants();
+        }
+      } catch (error) {
+        console.error('Error creating room:', error);
+        showToast('Failed to create room. Please try again.', 'error');
+      }
+    }
+    
+    async function joinSwipeRoom() {
+      const roomCode = document.getElementById('join-room-code').value.toUpperCase().trim();
+      if (!roomCode || roomCode.length !== 6) {
+        showToast('Please enter a valid 6-character room code', 'error');
+        return;
+      }
+      
+      await joinSwipeRoomInternal(roomCode);
+    }
+    
+    async function joinSwipeRoomInternal(roomCode) {
+      try {
+        const response = await fetch('/api/swipe/join-room', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomCode,
+            userId: swipeData.userId
+          })
+        });
+        
+        const data = await response.json();
+        if (data.roomCode) {
+          swipeData.roomCode = roomCode;
+          swipeData.filters = data.filters || {};
+          swipeData.groupSize = data.groupSize || 2;
+          
+          document.getElementById('display-room-code').textContent = roomCode;
+          document.getElementById('max-participants').textContent = data.groupSize;
+          document.getElementById('participant-count').textContent = data.currentParticipants;
+          
+          // Show waiting screen
+          document.getElementById('swipe-setup').style.display = 'none';
+          document.getElementById('swipe-waiting').style.display = 'block';
+          
+          // Poll for updates
+          pollForParticipants();
+        } else {
+          showToast('Failed to join room. Check your room code.', 'error');
+        }
+      } catch (error) {
+        console.error('Error joining room:', error);
+        showToast('Failed to join room. Please try again.', 'error');
+      }
+    }
+    
+    async function pollForParticipants() {
+      const interval = setInterval(async () => {
+        try {
+          const response = await fetch('/api/swipe/check-matches', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roomCode: swipeData.roomCode })
+          });
+          
+          const data = await response.json();
+          
+          // Update participant count (if available in response)
+          if (data.participants) {
+            const currentCount = data.participants.length;
+            document.getElementById('participant-count').textContent = currentCount;
+            
+            // Check if we can start (all participants joined)
+            if (currentCount >= swipeData.groupSize) {
+              document.getElementById('start-swipe-btn').style.display = 'block';
+              clearInterval(interval);
+            }
+          }
+        } catch (error) {
+          console.error('Error polling participants:', error);
+        }
+      }, 2000); // Poll every 2 seconds
+      
+      // Store interval ID to clear later
+      swipeData.pollInterval = interval;
+    }
+    
+    async function startSwiping() {
+      if (swipeData.pollInterval) {
+        clearInterval(swipeData.pollInterval);
+      }
+      
+      try {
+        // Get restaurants for this user
+        const response = await fetch('/api/swipe/get-restaurants', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: swipeData.roomCode,
+            userId: swipeData.userId
+          })
+        });
+        
+        const data = await response.json();
+        if (data.restaurants && data.restaurants.length > 0) {
+          swipeData.currentRestaurants = data.restaurants;
+          swipeData.currentIndex = 0;
+          
+          // Show swiping screen
+          document.getElementById('swipe-waiting').style.display = 'none';
+          document.getElementById('swipe-active').style.display = 'block';
+          
+          renderSwipeCard();
+          updateSwipeProgress();
+        } else {
+          showToast('No restaurants available. Try adjusting filters.', 'error');
+        }
+      } catch (error) {
+        console.error('Error starting swiping:', error);
+        showToast('Failed to load restaurants. Please try again.', 'error');
+      }
+    }
+    
+    function renderSwipeCard() {
+      const stack = document.getElementById('swipe-stack');
+      stack.innerHTML = '';
+      
+      if (swipeData.currentIndex >= swipeData.currentRestaurants.length) {
+        // Finished swiping, check for matches
+        checkSwipeMatches();
+        return;
+      }
+      
+      const restaurant = swipeData.currentRestaurants[swipeData.currentIndex];
+      const card = createSwipeCard(restaurant);
+      stack.appendChild(card);
+    }
+    
+    function createSwipeCard(restaurant) {
+      const card = document.createElement('div');
+      card.className = 'swipe-card';
+      card.dataset.restaurantId = restaurant.place_id;
+      
+      const imageUrl = restaurant.images && restaurant.images[0] 
+        ? `/api/photo?photo_reference=${restaurant.images[0].photo_reference}&maxwidth=400`
+        : 'https://via.placeholder.com/400x300?text=No+Image';
+      
+      card.innerHTML = `
+        <div class="swipe-card-image" style="background-image: url('${imageUrl}')">
+          ${restaurant.is_open_now ? '<span class="open-badge">Open Now</span>' : ''}
+        </div>
+        <div class="swipe-card-content">
+          <h3>${restaurant.name}</h3>
+          <div class="swipe-card-rating">
+            <span class="rating-stars">${'⭐'.repeat(Math.floor(restaurant.rating || 0))}</span>
+            <span class="rating-value">${(restaurant.rating || 0).toFixed(1)}</span>
+            <span class="rating-count">(${restaurant.user_ratings_total || 0} reviews)</span>
+          </div>
+          ${restaurant.distance_formatted ? `<p class="swipe-card-distance">📍 ${restaurant.distance_formatted}</p>` : ''}
+          ${restaurant.price_category ? `<p class="swipe-card-price">${getPriceSymbols(restaurant.price_category)}</p>` : ''}
+          ${restaurant.vicinity ? `<p class="swipe-card-location">${restaurant.vicinity}</p>` : ''}
+        </div>
+      `;
+      
+      return card;
+    }
+    
+    function updateSwipeProgress() {
+      const total = swipeData.currentRestaurants.length;
+      const current = swipeData.currentIndex;
+      document.getElementById('swipe-progress-text').textContent = `${current} / ${total}`;
+    }
+    
+    async function swipeLike() {
+      await performSwipe('like');
+    }
+    
+    async function swipePass() {
+      await performSwipe('pass');
+    }
+    
+    async function performSwipe(action) {
+      if (swipeData.currentIndex >= swipeData.currentRestaurants.length) return;
+      
+      const restaurant = swipeData.currentRestaurants[swipeData.currentIndex];
+      
+      try {
+        // Record swipe on server
+        await fetch('/api/swipe/record-swipe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomCode: swipeData.roomCode,
+            userId: swipeData.userId,
+            restaurantId: restaurant.place_id,
+            action: action
+          })
+        });
+        
+        // Animate card out
+        const card = document.querySelector('.swipe-card');
+        if (card) {
+          card.style.transform = action === 'like' ? 'translateX(100vw)' : 'translateX(-100vw)';
+          card.style.opacity = '0';
+          setTimeout(() => {
+            card.remove();
+          }, 300);
+        }
+        
+        // Move to next card
+        swipeData.currentIndex++;
+        swipeData.swiped.push({ restaurantId: restaurant.place_id, action });
+        
+        // Wait a bit before showing next card
+        setTimeout(() => {
+          updateSwipeProgress();
+          renderSwipeCard();
+          
+          // Check if finished
+          if (swipeData.currentIndex >= swipeData.currentRestaurants.length) {
+            checkSwipeMatches();
+          }
+        }, 350);
+      } catch (error) {
+        console.error('Error recording swipe:', error);
+        showToast('Failed to record swipe. Please try again.', 'error');
+      }
+    }
+    
+    async function checkSwipeMatches() {
+      try {
+        const response = await fetch('/api/swipe/check-matches', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'completed' || data.allFinished) {
+          // Show matches
+          showSwipeMatches(data.matches || []);
+        } else {
+          // Not everyone finished, poll again
+          setTimeout(checkSwipeMatches, 2000);
+        }
+      } catch (error) {
+        console.error('Error checking matches:', error);
+        showToast('Failed to check matches. Please try again.', 'error');
+      }
+    }
+    
+    function showSwipeMatches(matches) {
+      document.getElementById('swipe-active').style.display = 'none';
+      document.getElementById('swipe-matches').style.display = 'block';
+      
+      const matchesList = document.getElementById('matches-list');
+      matchesList.innerHTML = '';
+      
+      if (matches.length === 0) {
+        matchesList.innerHTML = '<p class="no-matches">No matches found. Try getting more options!</p>';
+        return;
+      }
+      
+      matches.forEach(match => {
+        const matchCard = document.createElement('div');
+        matchCard.className = 'match-card';
+        
+        const imageUrl = match.images && match.images[0] 
+          ? `/api/photo?photo_reference=${match.images[0].photo_reference}&maxwidth=400`
+          : 'https://via.placeholder.com/400x300?text=No+Image';
+        
+        matchCard.innerHTML = `
+          <div class="match-card-image" style="background-image: url('${imageUrl}')"></div>
+          <div class="match-card-content">
+            <h3>${match.name}</h3>
+            <div class="match-card-rating">
+              <span>⭐ ${(match.rating || 0).toFixed(1)}</span>
+              <span>(${match.user_ratings_total || 0} reviews)</span>
+            </div>
+            ${match.distance_formatted ? `<p>📍 ${match.distance_formatted}</p>` : ''}
+            ${match.vicinity ? `<p>${match.vicinity}</p>` : ''}
+          </div>
+        `;
+        
+        matchesList.appendChild(matchCard);
+      });
+    }
+    
+    function randomPickMatch() {
+      const matches = document.querySelectorAll('.match-card');
+      if (matches.length === 0) return;
+      
+      const randomIndex = Math.floor(Math.random() * matches.length);
+      const selectedCard = matches[randomIndex];
+      
+      // Highlight selected card
+      matches.forEach(card => card.classList.remove('selected'));
+      selectedCard.classList.add('selected');
+      
+      showToast('Random pick selected! 🎲', 'success');
+    }
+    
+    function startMatchVoting() {
+      const matches = document.querySelectorAll('.match-card');
+      if (matches.length === 0) return;
+      
+      // Use existing group voting system
+      const matchOptions = Array.from(matches).map(card => {
+        const name = card.querySelector('h3').textContent;
+        return { name, restaurant: swipeData.currentRestaurants.find(r => r.name === name) };
+      });
+      
+      groupVotingData.options = matchOptions.map(m => m.restaurant).filter(Boolean);
+      openGroupVoting();
+      closeSwipeModal();
+    }
+    
+    async function retrySwiping() {
+      try {
+        const response = await fetch('/api/swipe/retry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode })
+        });
+        
+        const data = await response.json();
+        showToast(`Pool size increased to ${data.poolSize} restaurants`, 'success');
+        
+        // Reset and restart
+        swipeData.currentIndex = 0;
+        swipeData.swiped = [];
+        await startSwiping();
+      } catch (error) {
+        console.error('Error retrying:', error);
+        showToast('Failed to get more options. Please try again.', 'error');
+      }
+    }
+    
+    function copyRoomCode() {
+      const roomCode = document.getElementById('display-room-code').textContent;
+      navigator.clipboard.writeText(roomCode).then(() => {
+        showToast('Room code copied! 📋', 'success');
+      });
+    }
+    
+    function getSelectedCuisines() {
+      const selected = [];
+      document.querySelectorAll('.filter-chip.active[onclick*="CuisineFilter"]').forEach(chip => {
+        const match = chip.getAttribute('onclick').match(/'([^']+)'/);
+        if (match) selected.push(match[1]);
+      });
+      return selected;
+    }
+    
+    function getSelectedDietary() {
+      const selected = [];
+      document.querySelectorAll('.filter-chip.active[onclick*="DietaryFilter"]').forEach(chip => {
+        const match = chip.getAttribute('onclick').match(/'([^']+)'/);
+        if (match) selected.push(match[1]);
+      });
+      return selected;
+    }
+    
+    function getSelectedPriceRange() {
+      const slider = document.getElementById('budget-slider');
+      const value = parseInt(slider?.value) || 2;
+      const ranges = ['budget', 'moderate', 'expensive', 'luxury'];
+      return ranges[value - 1] || 'moderate';
+    }
+    
+    function getSelectedDistance() {
+      const slider = document.getElementById('distance-slider');
+      return parseFloat(slider?.value) || 5;
+    }
+    
+    function getSelectedOccasion() {
+      const selected = [];
+      document.querySelectorAll('.filter-chip.active[onclick*="OccasionFilter"]').forEach(chip => {
+        const match = chip.getAttribute('onclick').match(/'([^']+)'/);
+        if (match) selected.push(match[1]);
+      });
+      return selected;
+    }
+    
+    function getPriceSymbols(category) {
+      const symbols = {
+        'budget': '$',
+        'moderate': '$$',
+        'expensive': '$$$',
+        'luxury': '$$$$'
+      };
+      return symbols[category] || '$$';
+    }
+
+    // PWA Service Worker Registration
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('Service Worker registered:', reg))
+          .catch(err => console.log('Service Worker registration failed:', err));
+      });
+    }
   </script>
 </body>
 </html>

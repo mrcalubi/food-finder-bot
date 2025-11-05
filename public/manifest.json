@@ -1,0 +1,34 @@
+{
+  "name": "Food Finder - Discover Great Food",
+  "short_name": "Food Finder",
+  "description": "AI-powered food recommendation bot that finds the perfect restaurants based on your preferences",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ff6b6b",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/food_finder_favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/food_finder_favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["food", "lifestyle", "travel"],
+  "shortcuts": [
+    {
+      "name": "Find Food",
+      "short_name": "Find",
+      "description": "Quickly find food near you",
+      "url": "/?action=find",
+      "icons": [{ "src": "/food_finder_favicon.png", "sizes": "96x96" }]
+    }
+  ]
+}
