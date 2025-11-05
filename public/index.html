@@ -408,9 +408,42 @@
     <div id="output"></div>
     </div>
     
-    <!-- Swipe Modal (must be outside page views so it's always accessible) -->
-    <!-- Tinder-Style Swiping Modal -->
-    <div class="swipe-modal-overlay" id="swipe-modal" onclick="closeSwipeModalIfOverlay(event)" style="display: none;">
+    <!-- Group Mode View -->
+    <div id="group-mode-view" style="display: none;">
+      <section class="group-mode-hero">
+        <div class="group-mode-content">
+          <h2 class="group-mode-title">Can't Decide? Swipe Together! 💚</h2>
+          <p class="group-mode-description">Sync up with friends and discover restaurants you all love</p>
+          <button onclick="openSwipeMode()" class="group-mode-cta">
+            <span class="cta-icon">💚</span>
+            <span class="cta-text">Start Group Swiping</span>
+          </button>
+        </div>
+        
+        <div class="group-mode-features">
+          <div class="feature-card">
+            <div class="feature-icon">🎯</div>
+            <h3>Find Matches</h3>
+            <p>See which restaurants everyone likes</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🎲</div>
+            <h3>Quick Decisions</h3>
+            <p>Pick randomly or vote together</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">👥</div>
+            <h3>2-10 People</h3>
+            <p>Perfect for groups of any size</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Swipe Modal (must be outside container so position:fixed works correctly) -->
+  <!-- Tinder-Style Swiping Modal -->
+  <div class="swipe-modal-overlay" id="swipe-modal" onclick="closeSwipeModalIfOverlay(event)" style="display: none;">
       <div class="swipe-modal">
         <!-- Room Setup Step -->
         <div class="swipe-step" id="swipe-setup" style="display: block;">
@@ -500,39 +533,6 @@
         </div>
       </div>
     </div>
-    
-    <!-- Group Mode View -->
-    <div id="group-mode-view" style="display: none;">
-      <section class="group-mode-hero">
-        <div class="group-mode-content">
-          <h2 class="group-mode-title">Can't Decide? Swipe Together! 💚</h2>
-          <p class="group-mode-description">Sync up with friends and discover restaurants you all love</p>
-          <button onclick="openSwipeMode()" class="group-mode-cta">
-            <span class="cta-icon">💚</span>
-            <span class="cta-text">Start Group Swiping</span>
-          </button>
-        </div>
-        
-        <div class="group-mode-features">
-          <div class="feature-card">
-            <div class="feature-icon">🎯</div>
-            <h3>Find Matches</h3>
-            <p>See which restaurants everyone likes</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🎲</div>
-            <h3>Quick Decisions</h3>
-            <p>Pick randomly or vote together</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">👥</div>
-            <h3>2-10 People</h3>
-            <p>Perfect for groups of any size</p>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
 
   <script>
     // Auto-detect API base URL
