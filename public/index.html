@@ -414,7 +414,7 @@
         <div class="group-mode-content">
           <h2 class="group-mode-title">Can't Decide? Swipe Together! 💚</h2>
           <p class="group-mode-description">Sync up with friends and discover restaurants you all love</p>
-          <button onclick="openSwipeMode()" class="group-mode-cta">
+          <button id="start-group-swipe-btn" class="group-mode-cta">
             <span class="cta-icon">💚</span>
             <span class="cta-text">Start Group Swiping</span>
           </button>
@@ -2633,44 +2633,26 @@
     
     function openSwipeMode() {
       try {
-        console.log('openSwipeMode called');
-        
-        // Ensure we're on the group mode view
-        const groupView = document.getElementById('group-mode-view');
-        const mainView = document.getElementById('main-page-view');
-        
-        if (!groupView || groupView.style.display === 'none') {
-          console.warn('Not on group mode view, switching to group mode...');
-          // Switch to group mode if not already there
-          if (mainView) mainView.style.display = 'none';
-          if (groupView) groupView.style.display = 'block';
-          // Update toggle button
-          const toggleBtn = document.getElementById('group-mode-toggle');
-          if (toggleBtn) {
-            toggleBtn.classList.add('active');
-            const label = toggleBtn.querySelector('.toggle-label');
-            if (label) label.textContent = 'Solo Mode';
-          }
-          isGroupMode = true;
-        }
+        console.log('🔵 openSwipeMode called');
+        console.log('🔵 Current group mode state:', isGroupMode);
         
         // Ensure userId is set before opening
         swipeData.userId = getUserId();
-        console.log('UserId set:', swipeData.userId);
+        console.log('🔵 UserId set:', swipeData.userId);
         
-        // Show the modal first
+        // Show the modal first - don't worry about which view we're on
         const modal = document.getElementById('swipe-modal');
-        console.log('Modal element:', modal);
+        console.log('🔵 Modal element:', modal);
         
         if (!modal) {
-          console.error('Swipe modal not found!');
+          console.error('❌ Swipe modal not found!');
           showToast('Unable to open swipe mode. Please refresh the page.', 'error');
           return;
         }
         
         // Reset the modal state first
         resetSwipeData();
-        console.log('Modal state reset');
+        console.log('🔵 Modal state reset');
         
         // Remove inline style and set display with !important
         modal.removeAttribute('style');
@@ -2689,31 +2671,69 @@
         // Add modal-visible class for CSS
         modal.classList.add('modal-visible');
         
-        console.log('Swipe modal opened - display:', window.getComputedStyle(modal).display);
+        // Ensure modal is a direct child of body
+        if (modal.parentElement !== document.body) {
+          console.log('🔵 Moving modal to body');
+          document.body.appendChild(modal);
+        }
+        
+        console.log('🔵 Swipe modal opened - display:', window.getComputedStyle(modal).display);
         
         // Check if modal is actually visible
         const rect = modal.getBoundingClientRect();
         const computedStyle = window.getComputedStyle(modal);
-        console.log('Modal computed display:', computedStyle.display);
-        console.log('Modal dimensions:', rect.width, 'x', rect.height);
-        console.log('Modal position:', rect.top, rect.left);
-        console.log('Modal z-index:', computedStyle.zIndex);
+        console.log('🔵 Modal computed display:', computedStyle.display);
+        console.log('🔵 Modal dimensions:', rect.width, 'x', rect.height);
+        console.log('🔵 Modal position:', rect.top, rect.left);
+        console.log('🔵 Modal z-index:', computedStyle.zIndex);
         
         if (computedStyle.display === 'none' || rect.width === 0 || rect.height === 0) {
-          console.error('Modal is still hidden after setting display!');
-          // Last resort - append to body if not already there
-          if (modal.parentElement !== document.body) {
-            document.body.appendChild(modal);
-          }
+          console.error('❌ Modal is still hidden after setting display!');
+          // Last resort - force it
           modal.style.setProperty('display', 'flex', 'important');
           modal.style.setProperty('z-index', '9999', 'important');
+          modal.style.setProperty('visibility', 'visible', 'important');
+          modal.style.setProperty('opacity', '1', 'important');
+        } else {
+          console.log('✅ Modal should be visible now!');
         }
       } catch (error) {
-        console.error('Error opening swipe mode:', error);
-        console.error('Error stack:', error.stack);
+        console.error('❌ Error opening swipe mode:', error);
+        console.error('❌ Error stack:', error.stack);
         showToast('Failed to open swipe mode: ' + error.message, 'error');
       }
     }
+    
+    // Add event listener for the button (in addition to onclick for compatibility)
+    document.addEventListener('DOMContentLoaded', () => {
+      const startBtn = document.getElementById('start-group-swipe-btn');
+      if (startBtn) {
+        console.log('✅ Found start-group-swipe-btn, adding event listener');
+        startBtn.addEventListener('click', (e) => {
+          console.log('🔵 Button clicked via event listener!');
+          e.preventDefault();
+          e.stopPropagation();
+          openSwipeMode();
+        });
+      } else {
+        console.warn('⚠️ start-group-swipe-btn not found on DOMContentLoaded');
+      }
+    });
+    
+    // Also try on window load in case DOMContentLoaded already fired
+    window.addEventListener('load', () => {
+      const startBtn = document.getElementById('start-group-swipe-btn');
+      if (startBtn && !startBtn.hasAttribute('data-listener-added')) {
+        console.log('✅ Found start-group-swipe-btn on load, adding event listener');
+        startBtn.setAttribute('data-listener-added', 'true');
+        startBtn.addEventListener('click', (e) => {
+          console.log('🔵 Button clicked via event listener (load)!');
+          e.preventDefault();
+          e.stopPropagation();
+          openSwipeMode();
+        });
+      }
+    });
     
     function closeSwipeModal() {
       const modal = document.getElementById('swipe-modal');
