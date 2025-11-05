@@ -94,6 +94,8 @@
     const API_BASE = getApiBaseUrl();
 
     let userId = null;
+    let userLocation = null; // human-readable
+    let userCoordinates = null; // { lat, lng }
     function getUserId() {
       if (!userId) {
         userId = localStorage.getItem('foodFinderUserId');
@@ -104,6 +106,35 @@
       }
       return userId;
     }
+
+    // Geolocation → reverse geocode helper
+    async function getCurrentLocation() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject(new Error('Geolocation not supported'));
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+          try {
+            const { latitude, longitude } = pos.coords;
+            userCoordinates = { lat: latitude, lng: longitude };
+            // Reverse geocode via API
+            const r = await fetch(`${API_BASE}/api/geocode?lat=${latitude}&lng=${longitude}`);
+            if (r.ok) {
+              const data = await r.json();
+              userLocation = data.formatted_address || data.city || `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+            } else {
+              userLocation = `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+            }
+            resolve({ userLocation, userCoordinates });
+          } catch (e) {
+            reject(e);
+          }
+        }, (err) => reject(err), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+      });
+    }
+
+    // Attempt to get location early for better relevance
+    (async () => {
+      try { await getCurrentLocation(); } catch {}
+    })();
 
     // Minimal swipe state
     let swipeData = {
@@ -291,6 +322,8 @@
       if (!r) return;
       stack.appendChild(createSwipeCard(r));
       updateSwipeProgress();
+      prefetchNextImages(3);
+      maybeFetchMoreSoon();
     }
 
     async function createSwipeRoom() {
@@ -299,7 +332,7 @@
         swipeData.groupSize = groupSize;
         const res = await fetch(`${API_BASE}/api/swipe/create-room`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ groupSize, userLocation: null, userCoordinates: null, filters: {} })
+          body: JSON.stringify({ groupSize, userLocation, userCoordinates, filters: {} })
         });
         if (!res.ok) throw new Error('Create failed ' + res.status);
         const data = await res.json();
@@ -360,7 +393,7 @@
       try {
         const res = await fetch(`${API_BASE}/api/swipe/get-restaurants`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomCode: swipeData.roomCode, userId: getUserId() })
+          body: JSON.stringify({ roomCode: swipeData.roomCode, userId: getUserId(), userLocation, userCoordinates })
         });
         if (!res.ok) throw new Error('Get restaurants failed ' + res.status);
         const data = await res.json();
@@ -466,8 +499,20 @@
           body: JSON.stringify({ roomCode: swipeData.roomCode })
         });
         if (!res.ok) throw new Error('Retry failed ' + res.status);
-        // After retry, fetch more restaurants again
-        await startSwiping();
+        // After retry, fetch more restaurants and append to keep flow smooth
+        const res2 = await fetch(`${API_BASE}/api/swipe/get-restaurants`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomCode: swipeData.roomCode, userId: getUserId(), userLocation, userCoordinates })
+        });
+        if (res2.ok) {
+          const data2 = await res2.json();
+          const more = data2.restaurants || [];
+          // Avoid duplicates by place_id
+          const existingIds = new Set((swipeData.currentRestaurants || []).map(r => r.place_id || r.id));
+          const uniqueMore = more.filter(r => !existingIds.has(r.place_id || r.id));
+          swipeData.currentRestaurants = swipeData.currentRestaurants.concat(uniqueMore);
+          prefetchNextImages(3);
+        }
       } catch (e) {
         console.error(e); alert('Failed to get more options.');
       }
@@ -476,6 +521,31 @@
     function copyRoomCode() {
       const code = document.getElementById('display-room-code').textContent;
       navigator.clipboard.writeText(code).then(() => alert('Copied room code'));
+    }
+
+    // Prefetch upcoming images for smooth UX
+    function prefetchNextImages(count = 3) {
+      const start = swipeData.currentIndex + 1;
+      const end = Math.min(start + count, swipeData.currentRestaurants.length);
+      for (let i = start; i < end; i++) {
+        const r = swipeData.currentRestaurants[i];
+        if (!r) continue;
+        const src = r.images && r.images[0] && r.images[0].photo_reference
+          ? `${API_BASE}/api/photo?photo_reference=${r.images[0].photo_reference}&maxwidth=800`
+          : (r.images && r.images[0] && r.images[0].url) || '';
+        if (src) {
+          const img = new Image();
+          img.src = src;
+        }
+      }
+    }
+
+    // If nearing the end, proactively fetch more
+    function maybeFetchMoreSoon() {
+      const remaining = swipeData.currentRestaurants.length - swipeData.currentIndex - 1;
+      if (remaining <= 2) {
+        retrySwiping();
+      }
     }
   </script>
 </body>
