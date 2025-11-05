@@ -537,12 +537,37 @@
 
     async function joinSwipeRoom() {
       const code = (document.getElementById('join-room-code').value || '').trim().toUpperCase();
-      if (!code) return;
-      await joinSwipeRoomInternal(code);
-      swipeData.roomCode = code;
-      document.getElementById('display-room-code').textContent = code;
-      showStep('step-waiting');
-      pollForParticipants();
+      if (!code) {
+        alert('Please enter a room code');
+        return;
+      }
+      
+      try {
+        // Ensure location is available before joining
+        if (!userLocation && !userCoordinates) {
+          const statusEl = document.getElementById('location-text');
+          statusEl.textContent = '📍 Getting location...';
+          statusEl.style.color = '#666';
+          try {
+            await getCurrentLocation();
+            statusEl.textContent = `📍 ${userLocation || 'Location ready'}`;
+            statusEl.style.color = '#4CAF50';
+          } catch (e) {
+            console.error('❌ Failed to get location:', e);
+            const proceed = confirm('Location not available. Continue anyway? (Results may be less relevant)');
+            if (!proceed) return;
+          }
+        }
+        
+        await joinSwipeRoomInternal(code);
+        swipeData.roomCode = code;
+        document.getElementById('display-room-code').textContent = code;
+        showStep('step-waiting');
+        pollForParticipants();
+      } catch (e) {
+        console.error('❌ Error joining room:', e);
+        alert('Failed to join room: ' + (e.message || 'Room not found or invalid'));
+      }
     }
 
     async function joinSwipeRoomInternal(roomCode) {
@@ -550,13 +575,24 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomCode, userId: getUserId() })
       });
-      if (!res.ok) throw new Error('Join failed ' + res.status);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `Join failed (${res.status})`);
+      }
+      
       const data = await res.json();
       swipeData.participants = data.participants || [];
-      document.getElementById('participant-count').textContent = swipeData.participants.length;
-      document.getElementById('max-participants').textContent = data.maxParticipants || swipeData.groupSize;
+      swipeData.groupSize = data.groupSize || swipeData.groupSize;
+      document.getElementById('participant-count').textContent = data.currentParticipants || swipeData.participants.length;
+      document.getElementById('max-participants').textContent = data.groupSize || swipeData.groupSize;
+      
+      // Show start button if all participants joined
       const startBtn = document.getElementById('start-swipe-btn');
-      if (startBtn) startBtn.style.display = 'block';
+      if (startBtn) {
+        const allJoined = (data.currentParticipants || swipeData.participants.length) >= (data.groupSize || swipeData.groupSize);
+        startBtn.style.display = allJoined ? 'block' : 'none';
+      }
     }
 
     async function pollForParticipants() {
@@ -578,18 +614,52 @@
 
     async function startSwiping() {
       try {
+        // Ensure location is available
+        if (!userLocation && !userCoordinates) {
+          const statusEl = document.getElementById('location-text');
+          if (statusEl) {
+            statusEl.textContent = '📍 Getting location...';
+            statusEl.style.color = '#666';
+          }
+          try {
+            await getCurrentLocation();
+            if (statusEl) {
+              statusEl.textContent = `📍 ${userLocation || 'Location ready'}`;
+              statusEl.style.color = '#4CAF50';
+            }
+          } catch (e) {
+            console.error('❌ Failed to get location:', e);
+            alert('Location required to find restaurants. Please enable location services.');
+            return;
+          }
+        }
+        
+        console.log('🚀 Starting swiping with location:', { userLocation, userCoordinates });
+        
         const res = await fetch(`${API_BASE}/api/swipe/get-restaurants`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ roomCode: swipeData.roomCode, userId: getUserId(), userLocation, userCoordinates })
         });
-        if (!res.ok) throw new Error('Get restaurants failed ' + res.status);
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(errorData.error || `Failed to get restaurants (${res.status})`);
+        }
+        
         const data = await res.json();
+        console.log('✅ Restaurants received:', data.restaurants?.length || 0);
+        
+        if (!data.restaurants || data.restaurants.length === 0) {
+          throw new Error('No restaurants found. Try adjusting your filters or location.');
+        }
+        
         swipeData.currentRestaurants = data.restaurants || [];
         swipeData.currentIndex = 0;
         showStep('step-swiping');
         renderSwipeCard();
       } catch (e) {
-        console.error(e); alert('Failed to start swiping.');
+        console.error('❌ Error starting swiping:', e);
+        alert('Failed to start swiping: ' + (e.message || 'Unknown error'));
       }
     }
 

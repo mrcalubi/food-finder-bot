@@ -2345,7 +2345,9 @@ app.post('/api/swipe/join-room', generalLimiter, async (req, res) => {
     res.json({
       roomCode,
       groupSize: session.groupSize,
+      maxParticipants: session.groupSize,
       currentParticipants: session.participants.length,
+      participants: session.participants,
       filters: session.filters,
       status: session.status
     });
