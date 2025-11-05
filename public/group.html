@@ -115,6 +115,16 @@
       swiped: []
     };
 
+    // Swipe animation state
+    let dragState = {
+      isDragging: false,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      card: null
+    };
+
     function increaseSwipeGroupSize() {
       const input = document.getElementById('swipe-group-size');
       const value = parseInt(input.value) || 2;
@@ -156,8 +166,121 @@
           <div class="swipe-card-rating"><span class="rating-stars">★</span> ${restaurant.rating || '—'} (${restaurant.user_ratings_total || 0})</div>
           <p class="swipe-card-location">${restaurant.vicinity || restaurant.formatted_address || ''}</p>
         </div>
+        <div class="swipe-overlay swipe-overlay-like">LIKE</div>
+        <div class="swipe-overlay swipe-overlay-pass">PASS</div>
       `;
+      
+      // Add drag/swipe event listeners
+      setupSwipeHandlers(card);
       return card;
+    }
+
+    function setupSwipeHandlers(card) {
+      let startX = 0, startY = 0, currentX = 0, currentY = 0, isDragging = false;
+
+      const handleStart = (clientX, clientY) => {
+        if (isDragging) return;
+        isDragging = true;
+        startX = clientX;
+        startY = clientY;
+        card.style.transition = 'none';
+      };
+
+      const handleMove = (clientX, clientY) => {
+        if (!isDragging) return;
+        currentX = clientX - startX;
+        currentY = clientY - startY;
+        
+        // Calculate rotation (max 15 degrees)
+        const rotation = currentX * 0.1;
+        const opacity = 1 - Math.abs(currentX) / 400;
+        
+        // Update card transform
+        card.style.transform = `translateX(${currentX}px) translateY(${currentY}px) rotate(${rotation}deg)`;
+        card.style.opacity = Math.max(0.5, opacity);
+        
+        // Show overlay feedback
+        const likeOverlay = card.querySelector('.swipe-overlay-like');
+        const passOverlay = card.querySelector('.swipe-overlay-pass');
+        
+        if (currentX > 50) {
+          // Swiping right (like)
+          likeOverlay.style.opacity = Math.min(1, currentX / 200);
+          passOverlay.style.opacity = 0;
+        } else if (currentX < -50) {
+          // Swiping left (pass)
+          passOverlay.style.opacity = Math.min(1, Math.abs(currentX) / 200);
+          likeOverlay.style.opacity = 0;
+        } else {
+          likeOverlay.style.opacity = 0;
+          passOverlay.style.opacity = 0;
+        }
+      };
+
+      const handleEnd = () => {
+        if (!isDragging) return;
+        isDragging = false;
+        
+        const threshold = 100; // pixels to trigger swipe
+        card.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
+        
+        if (currentX > threshold) {
+          // Swipe right - LIKE
+          card.style.transform = `translateX(1000px) rotate(30deg)`;
+          card.style.opacity = '0';
+          setTimeout(() => swipeLike(), 300);
+        } else if (currentX < -threshold) {
+          // Swipe left - PASS
+          card.style.transform = `translateX(-1000px) rotate(-30deg)`;
+          card.style.opacity = '0';
+          setTimeout(() => swipePass(), 300);
+        } else {
+          // Snap back to center
+          card.style.transform = 'translateX(0) translateY(0) rotate(0deg)';
+          card.style.opacity = '1';
+          card.querySelector('.swipe-overlay-like').style.opacity = '0';
+          card.querySelector('.swipe-overlay-pass').style.opacity = '0';
+        }
+        
+        currentX = 0;
+        currentY = 0;
+      };
+
+      // Touch events
+      card.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handleStart(touch.clientX, touch.clientY);
+      }, { passive: false });
+
+      card.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handleMove(touch.clientX, touch.clientY);
+      }, { passive: false });
+
+      card.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        handleEnd();
+      }, { passive: false });
+
+      // Mouse events
+      card.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        handleStart(e.clientX, e.clientY);
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+      });
+
+      const handleMouseMove = (e) => {
+        handleMove(e.clientX, e.clientY);
+      };
+
+      const handleMouseUp = () => {
+        handleEnd();
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
     }
 
     function renderSwipeCard() {
