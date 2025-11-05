@@ -2635,6 +2635,25 @@
       try {
         console.log('openSwipeMode called');
         
+        // Ensure we're on the group mode view
+        const groupView = document.getElementById('group-mode-view');
+        const mainView = document.getElementById('main-page-view');
+        
+        if (!groupView || groupView.style.display === 'none') {
+          console.warn('Not on group mode view, switching to group mode...');
+          // Switch to group mode if not already there
+          if (mainView) mainView.style.display = 'none';
+          if (groupView) groupView.style.display = 'block';
+          // Update toggle button
+          const toggleBtn = document.getElementById('group-mode-toggle');
+          if (toggleBtn) {
+            toggleBtn.classList.add('active');
+            const label = toggleBtn.querySelector('.toggle-label');
+            if (label) label.textContent = 'Solo Mode';
+          }
+          isGroupMode = true;
+        }
+        
         // Ensure userId is set before opening
         swipeData.userId = getUserId();
         console.log('UserId set:', swipeData.userId);
@@ -2653,18 +2672,22 @@
         resetSwipeData();
         console.log('Modal state reset');
         
-        // Remove inline style and set display with !important using setAttribute
+        // Remove inline style and set display with !important
         modal.removeAttribute('style');
-        modal.style.cssText = 'display: flex !important; visibility: visible !important; opacity: 1 !important; z-index: 1000 !important; position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;';
+        modal.style.cssText = 'display: flex !important; visibility: visible !important; opacity: 1 !important; z-index: 9999 !important; position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; pointer-events: auto !important;';
         
         // Ensure the modal content is also visible
         const modalContent = modal.querySelector('.swipe-modal');
         if (modalContent) {
           modalContent.style.display = 'block';
+          modalContent.style.visibility = 'visible';
         }
         
         // Force a reflow to ensure display
         void modal.offsetHeight;
+        
+        // Add modal-visible class for CSS
+        modal.classList.add('modal-visible');
         
         console.log('Swipe modal opened - display:', window.getComputedStyle(modal).display);
         
@@ -2674,12 +2697,16 @@
         console.log('Modal computed display:', computedStyle.display);
         console.log('Modal dimensions:', rect.width, 'x', rect.height);
         console.log('Modal position:', rect.top, rect.left);
+        console.log('Modal z-index:', computedStyle.zIndex);
         
-        if (computedStyle.display === 'none') {
+        if (computedStyle.display === 'none' || rect.width === 0 || rect.height === 0) {
           console.error('Modal is still hidden after setting display!');
-          // Last resort - use a class-based approach
-          modal.classList.add('modal-visible');
+          // Last resort - append to body if not already there
+          if (modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+          }
           modal.style.setProperty('display', 'flex', 'important');
+          modal.style.setProperty('z-index', '9999', 'important');
         }
       } catch (error) {
         console.error('Error opening swipe mode:', error);

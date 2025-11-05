@@ -3512,6 +3512,8 @@ details.reason.low-rating[open] {
 .swipe-modal-overlay.modal-visible {
   display: flex !important;
   visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 9999 !important;
 }
 
 .swipe-modal {
