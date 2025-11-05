@@ -296,98 +296,6 @@
       <span class="arrow">↓</span>
     </div>
     
-    <!-- Tinder-Style Swiping Modal -->
-    <div class="swipe-modal-overlay" id="swipe-modal" onclick="closeSwipeModalIfOverlay(event)" style="display: none;">
-      <div class="swipe-modal">
-        <!-- Room Setup Step -->
-        <div class="swipe-step" id="swipe-setup" style="display: block;">
-          <div class="swipe-header">
-            <h2>💚 Group Swipe Mode</h2>
-            <button onclick="closeSwipeModal()" class="close-btn">×</button>
-          </div>
-          <div class="swipe-content">
-            <div class="swipe-info">
-              <p>Sync up with friends and swipe through restaurants together. When everyone likes the same place, it's a match!</p>
-            </div>
-            <div class="swipe-form">
-              <label>Group Size</label>
-              <div class="number-input-container">
-                <button onclick="decreaseSwipeGroupSize()" class="number-btn">−</button>
-                <input type="number" id="swipe-group-size" min="2" max="10" value="2" readonly>
-                <button onclick="increaseSwipeGroupSize()" class="number-btn">+</button>
-              </div>
-              <button onclick="createSwipeRoom()" class="modern-btn primary">Create Room</button>
-            </div>
-            <div class="swipe-form" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #e9ecef;">
-              <label>Or Join Existing Room</label>
-              <input type="text" id="join-room-code" placeholder="Enter room code" maxlength="6" style="text-transform: uppercase;">
-              <button onclick="joinSwipeRoom()" class="modern-btn secondary">Join Room</button>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Waiting for Players Step -->
-        <div class="swipe-step" id="swipe-waiting" style="display: none;">
-          <div class="swipe-header">
-            <h2>Waiting for Players</h2>
-          </div>
-          <div class="swipe-content">
-            <div class="room-code-display">
-              <p class="room-code-label">Room Code</p>
-              <p class="room-code" id="display-room-code">ABC123</p>
-              <button onclick="copyRoomCode()" class="modern-btn secondary small">Copy Code</button>
-            </div>
-            <div class="participants-list">
-              <p>Participants: <span id="participant-count">1</span>/<span id="max-participants">2</span></p>
-            </div>
-            <button onclick="startSwiping()" class="modern-btn primary" id="start-swipe-btn" style="display: none;">Start Swiping</button>
-          </div>
-        </div>
-        
-        <!-- Swiping Step -->
-        <div class="swipe-step" id="swipe-active" style="display: none;">
-          <div class="swipe-header">
-            <div class="swipe-progress">
-              <span id="swipe-progress-text">0 / 0</span>
-            </div>
-            <button onclick="closeSwipeModal()" class="close-btn">×</button>
-          </div>
-          <div class="swipe-content-swipe">
-            <div class="swipe-stack" id="swipe-stack">
-              <!-- Restaurant cards will be inserted here -->
-            </div>
-            <div class="swipe-actions">
-              <button onclick="swipePass()" class="swipe-btn pass-btn">
-                <span>✕</span>
-                <span class="swipe-label">Pass</span>
-              </button>
-              <button onclick="swipeLike()" class="swipe-btn like-btn">
-                <span>♥</span>
-                <span class="swipe-label">Like</span>
-              </button>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Matches Step -->
-        <div class="swipe-step" id="swipe-matches" style="display: none;">
-          <div class="swipe-header">
-            <h2>🎉 Matches Found!</h2>
-          </div>
-          <div class="swipe-content">
-            <div class="matches-list" id="matches-list">
-              <!-- Matched restaurants will be shown here -->
-            </div>
-            <div class="match-actions">
-              <button onclick="randomPickMatch()" class="modern-btn secondary">🎲 Random Pick</button>
-              <button onclick="startMatchVoting()" class="modern-btn primary">🗳️ Vote on Matches</button>
-              <button onclick="retrySwiping()" class="modern-btn tertiary">🔄 Get More Options</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    
     <!-- Modern Group Voting Modal -->
     <div class="group-voting-overlay" id="group-voting" style="display: none;" onclick="closeGroupVotingIfOverlay(event)">
       <div class="group-voting-modal">
@@ -500,6 +408,99 @@
     <div id="output"></div>
     </div>
     
+    <!-- Swipe Modal (must be outside page views so it's always accessible) -->
+    <!-- Tinder-Style Swiping Modal -->
+    <div class="swipe-modal-overlay" id="swipe-modal" onclick="closeSwipeModalIfOverlay(event)" style="display: none;">
+      <div class="swipe-modal">
+        <!-- Room Setup Step -->
+        <div class="swipe-step" id="swipe-setup" style="display: block;">
+          <div class="swipe-header">
+            <h2>💚 Group Swipe Mode</h2>
+            <button onclick="closeSwipeModal()" class="close-btn">×</button>
+          </div>
+          <div class="swipe-content">
+            <div class="swipe-info">
+              <p>Sync up with friends and swipe through restaurants together. When everyone likes the same place, it's a match!</p>
+            </div>
+            <div class="swipe-form">
+              <label>Group Size</label>
+              <div class="number-input-container">
+                <button onclick="decreaseSwipeGroupSize()" class="number-btn">−</button>
+                <input type="number" id="swipe-group-size" min="2" max="10" value="2" readonly>
+                <button onclick="increaseSwipeGroupSize()" class="number-btn">+</button>
+              </div>
+              <button onclick="createSwipeRoom()" class="modern-btn primary">Create Room</button>
+            </div>
+            <div class="swipe-form" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #e9ecef;">
+              <label>Or Join Existing Room</label>
+              <input type="text" id="join-room-code" placeholder="Enter room code" maxlength="6" style="text-transform: uppercase;">
+              <button onclick="joinSwipeRoom()" class="modern-btn secondary">Join Room</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Waiting for Players Step -->
+        <div class="swipe-step" id="swipe-waiting" style="display: none;">
+          <div class="swipe-header">
+            <h2>Waiting for Players</h2>
+          </div>
+          <div class="swipe-content">
+            <div class="room-code-display">
+              <p class="room-code-label">Room Code</p>
+              <p class="room-code" id="display-room-code">ABC123</p>
+              <button onclick="copyRoomCode()" class="modern-btn secondary small">Copy Code</button>
+            </div>
+            <div class="participants-list">
+              <p>Participants: <span id="participant-count">1</span>/<span id="max-participants">2</span></p>
+            </div>
+            <button onclick="startSwiping()" class="modern-btn primary" id="start-swipe-btn" style="display: none;">Start Swiping</button>
+          </div>
+        </div>
+        
+        <!-- Swiping Step -->
+        <div class="swipe-step" id="swipe-active" style="display: none;">
+          <div class="swipe-header">
+            <div class="swipe-progress">
+              <span id="swipe-progress-text">0 / 0</span>
+            </div>
+            <button onclick="closeSwipeModal()" class="close-btn">×</button>
+          </div>
+          <div class="swipe-content-swipe">
+            <div class="swipe-stack" id="swipe-stack">
+              <!-- Restaurant cards will be inserted here -->
+            </div>
+            <div class="swipe-actions">
+              <button onclick="swipePass()" class="swipe-btn pass-btn">
+                <span>✕</span>
+                <span class="swipe-label">Pass</span>
+              </button>
+              <button onclick="swipeLike()" class="swipe-btn like-btn">
+                <span>♥</span>
+                <span class="swipe-label">Like</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Matches Step -->
+        <div class="swipe-step" id="swipe-matches" style="display: none;">
+          <div class="swipe-header">
+            <h2>🎉 Matches Found!</h2>
+          </div>
+          <div class="swipe-content">
+            <div class="matches-list" id="matches-list">
+              <!-- Matched restaurants will be shown here -->
+            </div>
+            <div class="match-actions">
+              <button onclick="randomPickMatch()" class="modern-btn secondary">🎲 Random Pick</button>
+              <button onclick="startMatchVoting()" class="modern-btn primary">🗳️ Vote on Matches</button>
+              <button onclick="retrySwiping()" class="modern-btn tertiary">🔄 Get More Options</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <!-- Group Mode View -->
     <div id="group-mode-view" style="display: none;">
       <section class="group-mode-hero">
@@ -534,6 +535,20 @@
   </div>
 
   <script>
+    // Auto-detect API base URL
+    // If running on port 5502 (Live Server) or other dev server, use Express server on port 3000
+    // Otherwise, use relative URLs (same origin)
+    const getApiBaseUrl = () => {
+      const port = window.location.port;
+      // If running on Live Server or other dev port, redirect API calls to Express server
+      if (port && port !== '3000' && (port === '5502' || port.startsWith('55'))) {
+        return 'http://localhost:3000';
+      }
+      // Same origin - use relative URLs
+      return '';
+    };
+    const API_BASE = getApiBaseUrl();
+    
     let userLocation = null;
     let currentRecommendations = [];
     let userCoordinates = null;
@@ -565,7 +580,7 @@
     // Track user interactions for personalization
     async function trackInteraction(interaction) {
       try {
-        const response = await fetch('/interaction', {
+        const response = await fetch(`${API_BASE}/interaction`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -606,7 +621,7 @@
     // Get personalized suggestions
     async function getPersonalizedSuggestions(query = '') {
       try {
-        const response = await fetch(`/suggestions/${getUserId()}?query=${encodeURIComponent(query)}`);
+        const response = await fetch(`${API_BASE}/suggestions/${getUserId()}?query=${encodeURIComponent(query)}`);
         if (response.ok) {
           const data = await response.json();
           return data.suggestions || [];
@@ -976,7 +991,7 @@
             
             try {
               // Try Google Geocoding API first
-              const response = await fetch(`/api/geocode?lat=${latitude}&lng=${longitude}`);
+              const response = await fetch(`${API_BASE}/api/geocode?lat=${latitude}&lng=${longitude}`);
               const data = await response.json();
               
               if (data.results && data.results.length > 0 && data.status === 'OK') {
@@ -1221,7 +1236,7 @@
 
         console.log("🚀 Sending request to /recommend with body:", requestBody);
         
-        const res = await fetch("/recommend", {
+        const res = await fetch(`${API_BASE}/recommend`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
@@ -2743,7 +2758,7 @@
       }
       
       try {
-        const response = await fetch('/api/swipe/create-room', {
+        const response = await fetch(`${API_BASE}/api/swipe/create-room`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2802,7 +2817,7 @@
     
     async function joinSwipeRoomInternal(roomCode) {
       try {
-        const response = await fetch('/api/swipe/join-room', {
+        const response = await fetch(`${API_BASE}/api/swipe/join-room`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2839,7 +2854,7 @@
     async function pollForParticipants() {
       const interval = setInterval(async () => {
         try {
-          const response = await fetch('/api/swipe/check-matches', {
+          const response = await fetch(`${API_BASE}/api/swipe/check-matches`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ roomCode: swipeData.roomCode })
@@ -2874,7 +2889,7 @@
       
       try {
         // Get restaurants for this user
-        const response = await fetch('/api/swipe/get-restaurants', {
+        const response = await fetch(`${API_BASE}/api/swipe/get-restaurants`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2924,7 +2939,7 @@
       card.dataset.restaurantId = restaurant.place_id;
       
       const imageUrl = restaurant.images && restaurant.images[0] 
-        ? `/api/photo?photo_reference=${restaurant.images[0].photo_reference}&maxwidth=400`
+        ? `${API_BASE}/api/photo?photo_reference=${restaurant.images[0].photo_reference}&maxwidth=400`
         : 'https://via.placeholder.com/400x300?text=No+Image';
       
       card.innerHTML = `
@@ -2968,7 +2983,7 @@
       
       try {
         // Record swipe on server
-        await fetch('/api/swipe/record-swipe', {
+        await fetch(`${API_BASE}/api/swipe/record-swipe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3011,7 +3026,7 @@
     
     async function checkSwipeMatches() {
       try {
-        const response = await fetch('/api/swipe/check-matches', {
+        const response = await fetch(`${API_BASE}/api/swipe/check-matches`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ roomCode: swipeData.roomCode })
@@ -3049,7 +3064,7 @@
         matchCard.className = 'match-card';
         
         const imageUrl = match.images && match.images[0] 
-          ? `/api/photo?photo_reference=${match.images[0].photo_reference}&maxwidth=400`
+          ? `${API_BASE}/api/photo?photo_reference=${match.images[0].photo_reference}&maxwidth=400`
           : 'https://via.placeholder.com/400x300?text=No+Image';
         
         matchCard.innerHTML = `
@@ -3100,7 +3115,7 @@
     
     async function retrySwiping() {
       try {
-        const response = await fetch('/api/swipe/retry', {
+        const response = await fetch(`${API_BASE}/api/swipe/retry`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ roomCode: swipeData.roomCode })

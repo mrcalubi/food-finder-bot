@@ -15,6 +15,28 @@ const __dirname = dirname(__filename);
 const app = express();
 app.use(express.json());
 
+// Enable CORS for development (allows requests from different ports/origins)
+// MUST be before any routes - handles both localhost and 127.0.0.1
+app.use((req, res, next) => {
+  // Get the origin from the request
+  const origin = req.headers.origin;
+  
+  // Allow all origins (for development) - including localhost and 127.0.0.1
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  // Handle preflight OPTIONS request immediately
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+});
+
 // Serve static files from public directory with proper MIME types for PWA
 app.use(express.static(join(__dirname, 'public'), {
   setHeaders: (res, path) => {
@@ -2216,28 +2238,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    error: "Not found",
-    message: "The requested endpoint does not exist",
-    available_endpoints: ["/", "/recommend", "/health", "/api/geocode", "/api/fallback"]
-  });
-});
-
-// Start server
-const PORT = process.env.PORT || 3000;
-const isProduction = process.env.NODE_ENV === 'production';
-
-if (!isProduction) {
-  app.listen(PORT, () => {
-    logger.success(`Server running on http://localhost:${PORT}`);
-    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    logger.info(`OpenAI key present: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`);
-    logger.info(`Google Maps key present: ${process.env.GOOGLE_MAPS_API_KEY ? 'Yes' : 'No'}`);
-  });
-}
-
 // Tinder-style Swiping Session Management
 const swipingSessions = new NodeCache({
   stdTTL: 30 * 60,  // 30 minutes TTL
@@ -2554,6 +2554,28 @@ function hashString(str) {
     hash = hash & hash; // Convert to 32bit integer
   }
   return Math.abs(hash);
+}
+
+// 404 handler - MUST be after all other routes
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Not found",
+    message: "The requested endpoint does not exist",
+    available_endpoints: ["/", "/recommend", "/health", "/api/geocode", "/api/fallback", "/api/swipe/create-room", "/api/swipe/join-room", "/api/swipe/get-restaurants", "/api/swipe/record-swipe", "/api/swipe/check-matches", "/api/swipe/retry"]
+  });
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (!isProduction) {
+  app.listen(PORT, () => {
+    logger.success(`Server running on http://localhost:${PORT}`);
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`OpenAI key present: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`);
+    logger.info(`Google Maps key present: ${process.env.GOOGLE_MAPS_API_KEY ? 'Yes' : 'No'}`);
+  });
 }
 
 export default app;
