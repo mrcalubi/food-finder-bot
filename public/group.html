@@ -30,6 +30,12 @@
     <section style="padding: 0 1rem 2rem; max-width: 700px; margin: 0 auto;">
       <div class="card" id="step-setup">
         <h3>Create or Join</h3>
+        
+        <!-- Location Status -->
+        <div id="location-status" style="margin-bottom: 1.5rem; padding: 0.75rem; background: #f8f9fa; border-radius: 12px; font-size: 0.9rem; color: #666;">
+          <span id="location-text">📍 Getting your location...</span>
+        </div>
+        
         <div class="swipe-form">
           <label>Group Size</label>
           <div class="number-input-container">
@@ -37,7 +43,62 @@
             <input type="number" id="swipe-group-size" min="2" max="10" value="2" readonly>
             <button onclick="increaseSwipeGroupSize()" class="number-btn">+</button>
           </div>
-          <button onclick="createSwipeRoom()" class="modern-btn primary">Create Room</button>
+          
+          <!-- Filters Section -->
+          <div style="margin: 1.5rem 0;">
+            <button onclick="toggleFilters()" class="modern-btn tertiary" style="width: 100%; margin-bottom: 1rem;">
+              <span id="filters-toggle-icon">▼</span> <span id="filters-toggle-text">Add Filters (Optional)</span>
+            </button>
+            
+            <div id="filters-section" style="display: none; padding: 1rem; background: #f8f9fa; border-radius: 12px;">
+              <!-- Cuisine -->
+              <div class="filter-group" style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: #2c3e50;">Cuisine</h4>
+                <div class="chip-group">
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'italian')">Italian</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'chinese')">Chinese</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'japanese')">Japanese</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'korean')">Korean</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'thai')">Thai</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'mexican')">Mexican</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'indian')">Indian</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'cuisine', 'vietnamese')">Vietnamese</button>
+                </div>
+              </div>
+              
+              <!-- Dietary -->
+              <div class="filter-group" style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: #2c3e50;">Dietary</h4>
+                <div class="chip-group">
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'dietary', 'vegetarian')">Vegetarian</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'dietary', 'vegan')">Vegan</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'dietary', 'halal')">Halal</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'dietary', 'gluten-free')">Gluten-Free</button>
+                  <button class="filter-chip" onclick="toggleGroupFilterChip(this, 'dietary', 'keto')">Keto</button>
+                </div>
+              </div>
+              
+              <!-- Price Range -->
+              <div class="filter-group" style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: #2c3e50;">Price Range</h4>
+                <div class="slider-container">
+                  <input type="range" id="group-price-slider" min="1" max="4" step="1" value="2" onchange="updateGroupPriceValue()">
+                  <span id="group-price-value">$$ Moderate</span>
+                </div>
+              </div>
+              
+              <!-- Distance -->
+              <div class="filter-group">
+                <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: #2c3e50;">Max Distance</h4>
+                <div class="slider-container">
+                  <input type="range" id="group-distance-slider" min="0.5" max="10" step="0.5" value="5" onchange="updateGroupDistanceValue()">
+                  <span id="group-distance-value">5 km</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <button onclick="createSwipeRoom()" class="modern-btn primary" id="create-room-btn">Create Room</button>
         </div>
         <div class="swipe-form" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #e9ecef;">
           <label>Or Join Existing Room</label>
@@ -131,9 +192,19 @@
       });
     }
 
-    // Attempt to get location early for better relevance
+    // Get location and update UI
     (async () => {
-      try { await getCurrentLocation(); } catch {}
+      const statusEl = document.getElementById('location-text');
+      try {
+        statusEl.textContent = '📍 Getting your location...';
+        await getCurrentLocation();
+        statusEl.textContent = `📍 ${userLocation || 'Location ready'}`;
+        statusEl.style.color = '#4CAF50';
+      } catch (e) {
+        statusEl.textContent = '⚠️ Location not available - using default';
+        statusEl.style.color = '#ff9800';
+        console.warn('Location not available:', e);
+      }
     })();
 
     // Minimal swipe state
@@ -144,6 +215,14 @@
       currentRestaurants: [],
       currentIndex: 0,
       swiped: []
+    };
+
+    // Filter state
+    let groupFilters = {
+      cuisine: [],
+      dietary: [],
+      price_range: 'moderate',
+      distance: 5
     };
 
     // Swipe animation state
@@ -326,13 +405,85 @@
       maybeFetchMoreSoon();
     }
 
+    // Filter functions
+    function toggleFilters() {
+      const section = document.getElementById('filters-section');
+      const icon = document.getElementById('filters-toggle-icon');
+      const text = document.getElementById('filters-toggle-text');
+      if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.textContent = '▲';
+        text.textContent = 'Hide Filters';
+      } else {
+        section.style.display = 'none';
+        icon.textContent = '▼';
+        text.textContent = 'Add Filters (Optional)';
+      }
+    }
+
+    function toggleGroupFilterChip(btn, category, value) {
+      btn.classList.toggle('active');
+      if (!groupFilters[category]) groupFilters[category] = [];
+      const index = groupFilters[category].indexOf(value);
+      if (index > -1) {
+        groupFilters[category].splice(index, 1);
+      } else {
+        groupFilters[category].push(value);
+      }
+    }
+
+    function updateGroupPriceValue() {
+      const slider = document.getElementById('group-price-slider');
+      const value = parseInt(slider.value);
+      const display = document.getElementById('group-price-value');
+      const priceMap = { 1: '$ Budget', 2: '$$ Moderate', 3: '$$$ Expensive', 4: '$$$$ Luxury' };
+      display.textContent = priceMap[value] || '$$ Moderate';
+      const priceRangeMap = { 1: 'budget', 2: 'moderate', 3: 'expensive', 4: 'luxury' };
+      groupFilters.price_range = priceRangeMap[value] || 'moderate';
+    }
+
+    function updateGroupDistanceValue() {
+      const slider = document.getElementById('group-distance-slider');
+      const value = parseFloat(slider.value);
+      const display = document.getElementById('group-distance-value');
+      display.textContent = `${value} km`;
+      groupFilters.distance = value;
+    }
+
     async function createSwipeRoom() {
+      // Ensure location is available
+      if (!userLocation && !userCoordinates) {
+        const statusEl = document.getElementById('location-text');
+        statusEl.textContent = '📍 Getting location...';
+        statusEl.style.color = '#666';
+        try {
+          await getCurrentLocation();
+          statusEl.textContent = `📍 ${userLocation || 'Location ready'}`;
+          statusEl.style.color = '#4CAF50';
+        } catch (e) {
+          const proceed = confirm('Location not available. Continue anyway? (Results may be less relevant)');
+          if (!proceed) return;
+        }
+      }
+
       try {
+        const btn = document.getElementById('create-room-btn');
+        btn.disabled = true;
+        btn.textContent = 'Creating...';
+        
         const groupSize = parseInt(document.getElementById('swipe-group-size').value) || 2;
         swipeData.groupSize = groupSize;
+        
+        const filters = {
+          cuisine: groupFilters.cuisine,
+          dietary: groupFilters.dietary,
+          price_range: groupFilters.price_range,
+          distance: groupFilters.distance
+        };
+        
         const res = await fetch(`${API_BASE}/api/swipe/create-room`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ groupSize, userLocation, userCoordinates, filters: {} })
+          body: JSON.stringify({ groupSize, userLocation, userCoordinates, filters })
         });
         if (!res.ok) throw new Error('Create failed ' + res.status);
         const data = await res.json();
@@ -344,7 +495,13 @@
         pollForParticipants();
       } catch (e) {
         console.error(e);
-        alert('Failed to create room.');
+        alert('Failed to create room: ' + (e.message || 'Unknown error'));
+      } finally {
+        const btn = document.getElementById('create-room-btn');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Create Room';
+        }
       }
     }
 

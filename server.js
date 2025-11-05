@@ -2344,22 +2344,54 @@ app.post('/api/swipe/get-restaurants', generalLimiter, async (req, res) => {
     
     // If restaurants not loaded yet, fetch them
     if (session.restaurants.length === 0) {
+      // Handle cuisine filter - can be array or string
+      let cuisineQuery = 'restaurant';
+      if (session.filters.cuisine) {
+        if (Array.isArray(session.filters.cuisine) && session.filters.cuisine.length > 0) {
+          cuisineQuery = session.filters.cuisine[0] + ' restaurant';
+        } else if (typeof session.filters.cuisine === 'string') {
+          cuisineQuery = session.filters.cuisine + ' restaurant';
+        }
+      }
+      
+      // Determine location - prioritize coordinates, then userLocation, then try to reverse geocode
+      let searchLocation = session.userLocation;
+      let searchCoordinates = session.userCoordinates;
+      
+      // If we have coordinates but no good location string, use coordinates
+      if (searchCoordinates && searchCoordinates.lat && searchCoordinates.lng) {
+        // If location is null/undefined or 'current location', use coordinates directly
+        if (!searchLocation || searchLocation === 'current location') {
+          searchLocation = `${searchCoordinates.lat},${searchCoordinates.lng}`;
+        }
+      } else if (!searchLocation || searchLocation === 'current location') {
+        // No coordinates and no location - this is a problem, but we'll try anyway
+        logger.warn(`No location data for room ${roomCode}, using fallback`);
+        searchLocation = 'restaurant'; // Will search globally but that's not ideal
+      }
+      
       const intent = {
-        search_term: session.filters.cuisine || 'restaurant',
-        location: session.userLocation || 'current location',
+        search_term: cuisineQuery,
+        location: searchLocation,
         radius: session.filters.distance || 5,
         price_range: session.filters.price_range || 'moderate',
-        dietary_restrictions: session.filters.dietary || [],
-        special_occasions: session.filters.occasion || []
+        dietary_restrictions: Array.isArray(session.filters.dietary) ? session.filters.dietary : (session.filters.dietary ? [session.filters.dietary] : []),
+        special_occasions: Array.isArray(session.filters.occasion) ? session.filters.occasion : (session.filters.occasion ? [session.filters.occasion] : [])
       };
+      
+      logger.info(`Fetching restaurants for room ${roomCode}:`, {
+        location: searchLocation,
+        hasCoordinates: !!searchCoordinates,
+        filters: session.filters
+      });
       
       // Fetch more restaurants than needed for pool
       // Note: searchMultipleSources returns an object with source keys, not a flat array
       const allResults = await searchMultipleSources(
         intent.search_term || 'restaurant',
-        session.userLocation || 'current location',
+        searchLocation,
         (intent.radius || 5) * 1000,
-        session.userCoordinates
+        searchCoordinates
       );
       
       const mergedResults = mergeRestaurantData(allResults);
